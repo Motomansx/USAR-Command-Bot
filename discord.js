@@ -349,23 +349,18 @@ client.on('interactionCreate', async interaction => {
             
             const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
 
-            // Fetch total badge count handling pagination cursors
+            // Fetch total badge count handling pagination correctly via Roblox Badges API
             let badgeCount = 0;
             let cursor = '';
             try {
                 do {
-                    const badgeRes = await noblox.getPlayerBadges({ 
-                        userId: robloxUserId, 
-                        limit: 100, 
-                        cursor: cursor 
-                    });
+                    const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
                     
-                    if (badgeRes && badgeRes.data) {
-                        badgeCount += badgeRes.data.length;
-                        cursor = badgeRes.nextPageCursor;
-                    } else if (Array.isArray(badgeRes)) {
-                        badgeCount = badgeRes.length;
-                        break;
+                    if (data && data.data) {
+                        badgeCount += data.data.length;
+                        cursor = data.nextPageCursor;
                     } else {
                         break;
                     }
