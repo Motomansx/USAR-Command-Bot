@@ -29,12 +29,15 @@ client.once('clientReady', async () => {
                 roblox_id BIGINT,
                 xp INT DEFAULT 0
             );
+            ALTER TABLE user_xp ADD COLUMN IF NOT EXISTS roblox_id BIGINT;
+            ALTER TABLE user_xp DROP COLUMN IF EXISTS robux_id;
+
             CREATE TABLE IF NOT EXISTS xp_ranks (
                 min_xp INT PRIMARY KEY,
                 rank_value INT NOT NULL
             );
         `);
-        console.log('[USAR Command] Database tables verified.');
+        console.log('[USAR Command] Database tables and columns verified.');
     } catch (err) {
         console.error('[USAR Command] Database setup error:', err);
     }
@@ -103,7 +106,6 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
-    // Helper function to resolve either a username or ID string into a numeric Roblox User ID
     async function resolveRobloxId(input) {
         if (/^\d+$/.test(input)) {
             return parseInt(input, 10);
