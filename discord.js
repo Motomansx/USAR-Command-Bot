@@ -95,9 +95,9 @@ client.on('interactionCreate', async interaction => {
         const rankValue = parseInt(interaction.options.getString('rank'), 10);
         
         try {
-            // Fetch target user details & rank name for logging
+            // Fetch target user details & rank name for logging (using supported 420x420 thumbnail size)
             const targetUsername = await noblox.getUsernameFromId(robloxUserId);
-            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '428x428', 'png', false, 'Headshot');
+            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
             const thumbUrl = headshotThumb[0]?.imageUrl || null;
             
             const roles = await noblox.getRoles(GROUP_ID);
