@@ -10,6 +10,7 @@ const pool = new Pool({
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 61252017;
 const LOG_CHANNEL_ID = '1548155269001904229';
+const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
 // Channel Restriction IDs
 const XP_CHANNEL_ID = '1526039744700743821';
@@ -210,6 +211,7 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
+            // Send log to primary log channel
             const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
@@ -223,6 +225,23 @@ client.on('interactionCreate', async interaction => {
                     )
                     .setTimestamp();
                 await logChannel.send({ embeds: [embed] });
+            }
+
+            // Send log to dedicated XP log channel
+            const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
+            if (xpLogChannel) {
+                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
+                const xpEmbed = new EmbedBuilder()
+                    .setTitle('📈 XP Log Entry')
+                    .setColor(0xE67E22)
+                    .addFields(
+                        { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
+                        { name: 'XP Amount', value: `+${amount} XP`, inline: true },
+                        { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
+                        { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: false }
+                    )
+                    .setTimestamp();
+                await xpLogChannel.send({ embeds: [xpEmbed] });
             }
 
         } catch (error) {
