@@ -11,6 +11,10 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 61252017;
 const LOG_CHANNEL_ID = '1548155269001904229';
 
+// Channel Restriction IDs
+const XP_CHANNEL_ID = '1526039744700743821';
+const SETRANK_CHANNEL_ID = '1526041058553630730';
+
 client.once('clientReady', async () => {
     console.log(`[USAR Command] Logged in as ${client.user.tag}`);
 
@@ -106,6 +110,22 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
+    // Channel restriction checks
+    if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
+        return interaction.reply({ 
+            content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+
+    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks') && interaction.channelId !== XP_CHANNEL_ID) {
+        return interaction.reply({ 
+            content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+
+    // Helper function to resolve either a username or ID string into a numeric Roblox User ID
     async function resolveRobloxId(input) {
         if (/^\d+$/.test(input)) {
             return parseInt(input, 10);
@@ -115,7 +135,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (commandName === 'setrank') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
         const userInput = interaction.options.getString('user');
         const rankValue = parseInt(interaction.options.getString('rank'), 10);
         
@@ -149,12 +169,12 @@ client.on('interactionCreate', async interaction => {
             }
         } catch (error) {
             console.error(error);
-            await interaction.editReply(`Failed to update rank: ${error.message}`);
+            await interaction.editReply({ content: `Failed to update rank: ${error.message}` });
         }
     }
 
     if (commandName === 'givexp') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply();
         const userInput = interaction.options.getString('user');
         const targetDiscord = interaction.options.getUser('discord');
         const amount = interaction.options.getInteger('amount');
@@ -207,7 +227,7 @@ client.on('interactionCreate', async interaction => {
 
         } catch (error) {
             console.error(error);
-            await interaction.editReply(`Failed to award XP: ${error.message}`);
+            await interaction.editReply({ content: `Failed to award XP: ${error.message}` });
         }
     }
 
@@ -239,7 +259,7 @@ client.on('interactionCreate', async interaction => {
                 )
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             console.error('XP Command Error Details:', error);
             await interaction.reply({ content: `Database error fetching XP profile: ${error.message}`, flags: MessageFlags.Ephemeral });
@@ -268,7 +288,7 @@ client.on('interactionCreate', async interaction => {
                 .setDescription(description)
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            await interaction.reply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: 'Failed to fetch XP rank tiers.', flags: MessageFlags.Ephemeral });
