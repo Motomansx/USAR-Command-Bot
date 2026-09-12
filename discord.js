@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 const { Pool } = require('pg');
 
@@ -9,11 +9,11 @@ const pool = new Pool({
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 61252017;
+const LOG_CHANNEL_ID = '1548155269001904229';
 
 client.once('clientReady', async () => {
     console.log(`[USAR Command] Logged in as ${client.user.tag}`);
 
-    // Log into Roblox using the cookie
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
@@ -95,8 +95,35 @@ client.on('interactionCreate', async interaction => {
         const rankValue = parseInt(interaction.options.getString('rank'), 10);
         
         try {
+            // Fetch target user details & rank name for logging
+            const targetUsername = await noblox.getUsernameFromId(robloxUserId);
+            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '428x428', 'png', false, 'Headshot');
+            const thumbUrl = headshotThumb[0]?.imageUrl || null;
+            
+            const roles = await noblox.getRoles(GROUP_ID);
+            const targetRole = roles.find(r => r.rank === rankValue);
+            const rankName = targetRole ? targetRole.name : `Rank ${rankValue}`;
+
+            // Perform rank update
             await noblox.setRank(GROUP_ID, robloxUserId, rankValue);
-            await interaction.editReply(`Successfully updated Roblox ID **${robloxUserId}** to the selected group rank.`);
+            await interaction.editReply(`Successfully updated Roblox user **${targetUsername}** (${robloxUserId}) to **${rankName}**.`);
+
+            // Send Embed Log to channel
+            const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+            if (logChannel) {
+                const embed = new EmbedBuilder()
+                    .setTitle('📋 Rank Updated')
+                    .setColor(0x00FF00)
+                    .setThumbnail(thumbUrl)
+                    .addFields(
+                        { name: 'Target User', value: `[${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile) (\`${robloxUserId}\`)`, inline: false },
+                        { name: 'New Rank', value: `${rankName} (\`${rankValue}\`)`, inline: true },
+                        { name: 'Ranked By', value: `<@${interaction.user.id}>`, inline: true }
+                    )
+                    .setTimestamp();
+
+                await logChannel.send({ embeds: [embed] });
+            }
         } catch (error) {
             console.error(error);
             await interaction.editReply(`Failed to update rank: ${error.message}`);
