@@ -66,6 +66,12 @@ client.once('clientReady', async () => {
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
             .addIntegerOption(option => option.setName('amount').setDescription('Amount of XP to give').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('revokexp')
+            .setDescription('Revoke/remove XP from a member')
+            .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
+            .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
+            .addIntegerOption(option => option.setName('amount').setDescription('Amount of XP to revoke').setRequired(true)),
+        new SlashCommandBuilder()
             .setName('xp')
             .setDescription('View user XP profile')
             .addUserOption(option => 
@@ -130,7 +136,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
 
-    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
+    if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
         return interaction.reply({ 
             content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
             flags: MessageFlags.Ephemeral 
@@ -268,6 +274,66 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
+    if (commandName === 'revokexp') {
+        await interaction.deferReply();
+        const userInput = interaction.options.getString('user');
+        const targetDiscord = interaction.options.getUser('discord');
+        const amount = interaction.options.getInteger('amount');
+
+        try {
+            const robloxUserId = await resolveRobloxId(userInput);
+            // Ensure XP doesn't drop below 0 using GREATEST
+            const query = `
+                INSERT INTO user_xp (discord_id, roblox_id, xp)
+                VALUES ($1, $2, 0)
+                ON CONFLICT (discord_id) 
+                DO UPDATE SET xp = GREATEST(0, user_xp.xp - $3), roblox_id = $2
+                RETURNING xp;
+            `;
+            const result = await pool.query(query, [targetDiscord.id, robloxUserId, amount]);
+            const newTotalXp = result.rows[0].xp;
+
+            await interaction.editReply(`Successfully revoked **${amount} XP** from <@${targetDiscord.id}>. Total XP: **${newTotalXp}**`);
+
+            // Send log to primary log channel
+            const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+            if (logChannel) {
+                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
+                const embed = new EmbedBuilder()
+                    .setTitle('⚠️ XP Revoked')
+                    .setColor(0xE74C3C)
+                    .addFields(
+                        { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
+                        { name: 'XP Removed', value: `-${amount} XP (Total: ${newTotalXp})`, inline: true },
+                        { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
+                    )
+                    .setTimestamp();
+                await logChannel.send({ embeds: [embed] });
+            }
+
+            // Send log to dedicated XP log channel
+            const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
+            if (xpLogChannel) {
+                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
+                const xpEmbed = new EmbedBuilder()
+                    .setTitle('📉 XP Log Entry (Revoked)')
+                    .setColor(0xC0392B)
+                    .addFields(
+                        { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
+                        { name: 'XP Revoked', value: `-${amount} XP`, inline: true },
+                        { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
+                        { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: false }
+                    )
+                    .setTimestamp();
+                await xpLogChannel.send({ embeds: [xpEmbed] });
+            }
+
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to revoke XP: ${error.message}` });
+        }
+    }
+
     if (commandName === 'xp') {
         const targetUser = interaction.options.getUser('user') || interaction.user;
         
@@ -285,6 +351,18 @@ client.on('interactionCreate', async interaction => {
                 thumbUrl = headshotThumb[0]?.imageUrl || null;
             }
 
+            // Calculate next rank threshold
+            const nextRankQuery = await pool.query('SELECT min_xp, rank_value FROM xp_ranks WHERE min_xp > $1 ORDER BY min_xp ASC LIMIT 1', [userXp]);
+            let nextRankText = 'Max Rank Reached 🎉';
+            if (nextRankQuery.rows.length > 0) {
+                const nextThreshold = nextRankQuery.rows[0].min_xp;
+                const neededXp = nextThreshold - userXp;
+                const roles = await noblox.getRoles(GROUP_ID).catch(() => []);
+                const matchedRole = roles.find(r => r.rank === nextRankQuery.rows[0].rank_value);
+                const nextRoleName = matchedRole ? matchedRole.name : `Rank ID ${nextRankQuery.rows[0].rank_value}`;
+                nextRankText = `**${neededXp} XP** needed for **${nextRoleName}** (${nextThreshold} XP threshold)`;
+            }
+
             const embed = new EmbedBuilder()
                 .setTitle(`📊 XP Profile: ${targetUser.username}`)
                 .setColor(0xF1C40F)
@@ -292,6 +370,7 @@ client.on('interactionCreate', async interaction => {
                 .addFields(
                     { name: 'Discord User', value: `<@${targetUser.id}>`, inline: true },
                     { name: 'Current XP', value: `**${userXp} XP**`, inline: true },
+                    { name: 'Progress to Next Rank', value: nextRankText, inline: false },
                     { name: 'Roblox Account', value: robloxId ? `[${robloxName}](https://www.roblox.com/users/${robloxId}/profile) (\`${robloxId}\`)` : 'None linked via givexp', inline: false }
                 )
                 .setTimestamp();
@@ -445,7 +524,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `Background check failed: ${error.message}` });
+            await interaction.editReply({ content: `Background check fixed: ${error.message}` });
         }
     }
 });
