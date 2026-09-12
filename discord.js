@@ -239,8 +239,8 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } catch (error) {
-            console.error(error);
-            await interaction.reply({ content: 'Database error fetching XP profile.', flags: MessageFlags.Ephemeral });
+            console.error('XP Command Error Details:', error);
+            await interaction.reply({ content: `Database error fetching XP profile: ${error.message}`, flags: MessageFlags.Ephemeral });
         }
     }
 
