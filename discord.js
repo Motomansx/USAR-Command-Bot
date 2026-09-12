@@ -347,8 +347,11 @@ client.on('interactionCreate', async interaction => {
             const thumbUrl = headshotThumb[0]?.imageUrl || null;
             const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
             
-            // Replaced missing getHistory function with direct player info check or safe fallback array
             const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
+
+            // Fetch badge count safely using getPlayerBadges
+            const badgesList = await noblox.getPlayerBadges({ userId: robloxUserId, limit: 100 }).catch(() => []);
+            const badgeCount = Array.isArray(badgesList) ? badgesList.length : 'Unknown';
 
             const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
             const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
@@ -359,12 +362,31 @@ client.on('interactionCreate', async interaction => {
 
             const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
 
+            // Safety / Hazard evaluation heuristic
+            let hazardStatus = '🟢 **Status: GOOD (Low Risk)**';
+            let embedColor = 0x2ECC71; // Green
+
+            const isAltAccount = typeof robloxAgeDays === 'number' && robloxAgeDays < 30;
+            const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
+            const isDiscordAlt = discordAccountAgeDays < 30;
+
+            if (isAltAccount || isDiscordAlt) {
+                hazardStatus = '⚠️ **Status: HAZARD (Potential Alt / New Account)**';
+                embedColor = 0xE67E22; // Orange
+            }
+
+            if (isAltAccount && isDiscordAlt) {
+                hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
+                embedColor = 0xE74C3C; // Red
+            }
+
             const embed = new EmbedBuilder()
                 .setTitle(`🛡️ CLASSIFIED BACKGROUND CHECK: ${targetUsername}`)
-                .setColor(0x2C2F33)
+                .setColor(embedColor)
                 .setThumbnail(thumbUrl)
                 .addFields(
-                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}`, inline: false },
+                    { name: '🔍 Security Evaluation', value: hazardStatus, inline: false },
+                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}\n• **Badges Earned:** ${badgeCount}`, inline: false },
                     { name: '🎖️ USAR Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
                     { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
                     { name: '📋 Clearance & Roles', value: rolesList, inline: false },
