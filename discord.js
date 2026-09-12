@@ -349,9 +349,31 @@ client.on('interactionCreate', async interaction => {
             
             const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
 
-            // Fetch badge count safely using getPlayerBadges
-            const badgesList = await noblox.getPlayerBadges({ userId: robloxUserId, limit: 100 }).catch(() => []);
-            const badgeCount = Array.isArray(badgesList) ? badgesList.length : 'Unknown';
+            // Fetch total badge count handling pagination cursors
+            let badgeCount = 0;
+            let cursor = '';
+            try {
+                do {
+                    const badgeRes = await noblox.getPlayerBadges({ 
+                        userId: robloxUserId, 
+                        limit: 100, 
+                        cursor: cursor 
+                    });
+                    
+                    if (badgeRes && badgeRes.data) {
+                        badgeCount += badgeRes.data.length;
+                        cursor = badgeRes.nextPageCursor;
+                    } else if (Array.isArray(badgeRes)) {
+                        badgeCount = badgeRes.length;
+                        break;
+                    } else {
+                        break;
+                    }
+                } while (cursor);
+            } catch (err) {
+                console.error('Failed to fetch full badge list:', err);
+                badgeCount = 'Unknown';
+            }
 
             const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
             const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
