@@ -1,0 +1,13 @@
+{
+  "name": "usar-command-bot",
+  "version": "1.0.0",
+  "description": "USAR Rank and XP Bot",
+  "main": "discord.js",
+  "scripts": {
+    "start": "node discord.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "pg": "^8.11.3"
+  }
+}
