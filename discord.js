@@ -40,8 +40,11 @@ client.once('clientReady', async () => {
             .setDescription('Set the rank of a user in the USAR group')
             .addIntegerOption(option => 
                 option.setName('userid').setDescription('Roblox User ID').setRequired(true))
-            .addIntegerOption(option => 
-                option.setName('ranknumber').setDescription('The numeric rank number (1-255)').setRequired(true)),
+            .addStringOption(option => 
+                option.setName('rank')
+                    .setDescription('Select group rank from dropdown')
+                    .setRequired(true)
+                    .setAutocomplete(true)),
         new SlashCommandBuilder()
             .setName('xp')
             .setDescription('View user XP profile')
@@ -63,6 +66,25 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
+    if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'setrank') {
+            const focusedValue = interaction.options.getFocused().toLowerCase();
+            try {
+                const roles = await noblox.getRoles(GROUP_ID);
+                const filtered = roles
+                    .filter(role => role.name.toLowerCase().includes(focusedValue))
+                    .slice(0, 25);
+                
+                await interaction.respond(
+                    filtered.map(role => ({ name: role.name, value: role.rank.toString() }))
+                );
+            } catch (err) {
+                console.error('Failed to fetch autocomplete roles:', err);
+            }
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
@@ -70,12 +92,11 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'setrank') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const robloxUserId = interaction.options.getInteger('userid');
-        const rankNumber = interaction.options.getInteger('ranknumber');
+        const rankValue = parseInt(interaction.options.getString('rank'), 10);
         
         try {
-            // Using noblox to set the rank directly using the numeric rank value
-            await noblox.setRank(GROUP_ID, robloxUserId, rankNumber);
-            await interaction.editReply(`Successfully updated Roblox ID **${robloxUserId}** to rank number **${rankNumber}**.`);
+            await noblox.setRank(GROUP_ID, robloxUserId, rankValue);
+            await interaction.editReply(`Successfully updated Roblox ID **${robloxUserId}** to the selected group rank.`);
         } catch (error) {
             console.error(error);
             await interaction.editReply(`Failed to update rank: ${error.message}`);
