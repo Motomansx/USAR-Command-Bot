@@ -349,16 +349,20 @@ client.on('interactionCreate', async interaction => {
             
             const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
 
-            // Fetch total badge count handling pagination correctly via Roblox Badges API
+            // Fetch total badge count handling pagination correctly with proper headers
             let badgeCount = 0;
             let cursor = '';
             try {
+                // Get the cookie from noblox to authenticate the request if required by Roblox API
+                const cookie = noblox.cookie || process.env.ROBLOSECURITY;
+                const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
+
                 do {
                     const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
-                    const response = await fetch(url);
+                    const response = await fetch(url, { headers });
                     const data = await response.json();
                     
-                    if (data && data.data) {
+                    if (data && Array.isArray(data.data)) {
                         badgeCount += data.data.length;
                         cursor = data.nextPageCursor;
                     } else {
