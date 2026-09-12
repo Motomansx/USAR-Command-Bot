@@ -71,7 +71,14 @@ client.once('clientReady', async () => {
                 option.setName('user').setDescription('Discord user to check').setRequired(false)),
         new SlashCommandBuilder()
             .setName('xpranks')
-            .setDescription('View the current XP rank threshold requirements')
+            .setDescription('View the current rank threshold requirements'),
+        new SlashCommandBuilder()
+            .setName('background')
+            .setDescription('Run a full background screening check on a member')
+            .addStringOption(option => 
+                option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
+            .addUserOption(option => 
+                option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true))
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
@@ -119,7 +126,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
 
-    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks') && interaction.channelId !== XP_CHANNEL_ID) {
+    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'background') && interaction.channelId !== XP_CHANNEL_ID) {
         return interaction.reply({ 
             content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
             flags: MessageFlags.Ephemeral 
@@ -292,7 +299,7 @@ client.on('interactionCreate', async interaction => {
 
             let description = 'Here is how much XP you need to reach each rank:\n\n';
             if (ranksResult.rows.length === 0) {
-                description += 'No XP ranks have been set up yet.';
+                description += 'No rank thresholds have been added to the database yet.';
             } else {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
@@ -311,6 +318,50 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: 'Failed to fetch rank requirements.', flags: MessageFlags.Ephemeral });
+        }
+    }
+
+    if (commandName === 'background') {
+        await interaction.deferReply();
+        const userInput = interaction.options.getString('user');
+        const targetDiscord = interaction.options.getUser('discord');
+        const member = await interaction.guild.members.fetch(targetDiscord.id).catch(() => null);
+
+        try {
+            const robloxUserId = await resolveRobloxId(userInput);
+            const targetUsername = await noblox.getUsernameFromId(robloxUserId);
+            
+            const robloxAgeDays = await noblox.getPlayerAge(robloxUserId);
+            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
+            const thumbUrl = headshotThumb[0]?.imageUrl || null;
+            const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
+            const pastUsernames = await noblox.getHistory(robloxUserId).catch(() => []);
+
+            const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
+            const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
+            const rolesList = member ? member.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => `<@&${r.id}>`).join(', ') || 'None' : 'Not in server';
+
+            const dbResult = await pool.query('SELECT xp FROM user_xp WHERE discord_id = $1', [targetDiscord.id]);
+            const userXp = dbResult.rows.length > 0 ? dbResult.rows[0].xp : 0;
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🛡️ CLASSIFIED BACKGROUND CHECK: ${targetUsername}`)
+                .setColor(0x2C2F33)
+                .setThumbnail(thumbUrl)
+                .addFields(
+                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)`, inline: false },
+                    { name: '🎖️ USAR Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
+                    { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
+                    { name: '📋 Clearance & Roles', value: rolesList, inline: false },
+                    { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
+                )
+                .setFooter({ text: `Checked by ${interaction.user.tag} • USAR Security Division` })
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Background check failed: ${error.message}` });
         }
     }
 });
