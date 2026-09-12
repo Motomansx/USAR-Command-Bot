@@ -315,7 +315,7 @@ client.on('interactionCreate', async interaction => {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
                     const roleName = matchedRole ? matchedRole.name : `Rank ID ${row.rank_value}`;
-                    description += `🔹 **${roleName}** (Rank Value: \`${row.rank_value}\`) ➔ Requires **${row.min_xp} XP**\n`;
+                    description += `🔹 **${roleName}** ➔ Requires **${row.min_xp} XP**\n`;
                 }
             }
 
