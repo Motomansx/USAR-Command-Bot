@@ -339,7 +339,10 @@ client.on('interactionCreate', async interaction => {
             const robloxUserId = await resolveRobloxId(userInput);
             const targetUsername = await noblox.getUsernameFromId(robloxUserId);
             
-            const robloxAgeDays = await noblox.getPlayerAge(robloxUserId);
+            const playerInfo = await noblox.getPlayerInfo(robloxUserId).catch(() => null);
+            const joinDate = playerInfo?.joinDate ? new Date(playerInfo.joinDate) : null;
+            const robloxAgeDays = joinDate ? Math.floor((Date.now() - joinDate.getTime()) / (1000 * 60 * 60 * 24)) : 'Unknown';
+
             const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
             const thumbUrl = headshotThumb[0]?.imageUrl || null;
             const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
@@ -352,16 +355,18 @@ client.on('interactionCreate', async interaction => {
             const dbResult = await pool.query('SELECT xp FROM user_xp WHERE discord_id = $1', [targetDiscord.id]);
             const userXp = dbResult.rows.length > 0 ? dbResult.rows[0].xp : 0;
 
+            const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
+
             const embed = new EmbedBuilder()
                 .setTitle(`🛡️ CLASSIFIED BACKGROUND CHECK: ${targetUsername}`)
                 .setColor(0x2C2F33)
                 .setThumbnail(thumbUrl)
                 .addFields(
-                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)`, inline: false },
+                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}`, inline: false },
                     { name: '🎖️ USAR Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
                     { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
                     { name: '📋 Clearance & Roles', value: rolesList, inline: false },
-                    { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
+                    { name: '📜 Alias History', value: pastUsernames.length > ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
                 )
                 .setFooter({ text: `Checked by ${interaction.user.tag} • USAR Security Division` })
                 .setTimestamp();
