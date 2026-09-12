@@ -15,6 +15,7 @@ const XP_LOG_CHANNEL_ID = '1548166411266822144';
 // Channel Restriction IDs
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
+const BACKGROUND_CHANNEL_ID = '1548441081786663072';
 
 client.once('clientReady', async () => {
     console.log(`[USAR Command] Logged in as ${client.user.tag}`);
@@ -126,9 +127,16 @@ client.on('interactionCreate', async interaction => {
         });
     }
 
-    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'background') && interaction.channelId !== XP_CHANNEL_ID) {
+    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks') && interaction.channelId !== XP_CHANNEL_ID) {
         return interaction.reply({ 
             content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
+
+    if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
+        return interaction.reply({ 
+            content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
             flags: MessageFlags.Ephemeral 
         });
     }
