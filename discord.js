@@ -43,8 +43,8 @@ client.once('clientReady', async () => {
         new SlashCommandBuilder()
             .setName('setrank')
             .setDescription('Set the rank of a user in the USAR group')
-            .addIntegerOption(option => 
-                option.setName('userid').setDescription('Roblox User ID').setRequired(true))
+            .addStringOption(option => 
+                option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addStringOption(option => 
                 option.setName('rank')
                     .setDescription('Select group rank from dropdown')
@@ -53,7 +53,7 @@ client.once('clientReady', async () => {
         new SlashCommandBuilder()
             .setName('givexp')
             .setDescription('Award event XP to a member')
-            .addIntegerOption(option => option.setName('userid').setDescription('Roblox User ID').setRequired(true))
+            .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
             .addIntegerOption(option => option.setName('amount').setDescription('Amount of XP to give').setRequired(true)),
         new SlashCommandBuilder()
@@ -103,12 +103,22 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
+    // Helper function to resolve either a username or ID string into a numeric Roblox User ID
+    async function resolveRobloxId(input) {
+        if (/^\d+$/.test(input)) {
+            return parseInt(input, 10);
+        } else {
+            return await noblox.getIdFromUsername(input);
+        }
+    }
+
     if (commandName === 'setrank') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const robloxUserId = interaction.options.getInteger('userid');
+        const userInput = interaction.options.getString('user');
         const rankValue = parseInt(interaction.options.getString('rank'), 10);
         
         try {
+            const robloxUserId = await resolveRobloxId(userInput);
             const targetUsername = await noblox.getUsernameFromId(robloxUserId);
             const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
             const thumbUrl = headshotThumb[0]?.imageUrl || null;
@@ -143,11 +153,12 @@ client.on('interactionCreate', async interaction => {
 
     if (commandName === 'givexp') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const robloxUserId = interaction.options.getInteger('userid');
+        const userInput = interaction.options.getString('user');
         const targetDiscord = interaction.options.getUser('discord');
         const amount = interaction.options.getInteger('amount');
 
         try {
+            const robloxUserId = await resolveRobloxId(userInput);
             const query = `
                 INSERT INTO user_xp (discord_id, roblox_id, xp)
                 VALUES ($1, $2, $3)
@@ -160,7 +171,6 @@ client.on('interactionCreate', async interaction => {
 
             let rankPromotionText = '';
             
-            // Check if user has crossed any XP threshold to auto-rank up
             const rankCheck = await pool.query('SELECT rank_value FROM xp_ranks WHERE min_xp <= $1 ORDER BY min_xp DESC LIMIT 1', [newTotalXp]);
             if (rankCheck.rows.length > 0) {
                 const targetRankVal = rankCheck.rows[0].rank_value;
@@ -178,7 +188,6 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
-            // Send notification log embed
             const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
@@ -207,7 +216,7 @@ client.on('interactionCreate', async interaction => {
             const result = await pool.query('SELECT xp, roblox_id FROM user_xp WHERE discord_id = $1', [targetUser.id]);
             const userData = result.rows[0];
             const userXp = userData ? userData.xp : 0;
-            const robloxId = userData ? userData.robux_id || userData.roblox_id : null;
+            const robloxId = userData ? userData.roblox_id : null;
 
             let robloxName = 'Not Linked';
             let thumbUrl = null;
