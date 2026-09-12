@@ -215,8 +215,10 @@ client.on('interactionCreate', async interaction => {
             `;
             const result = await pool.query(query, [targetDiscord.id, robloxUserId, amount]);
             const newTotalXp = result.rows[0].xp;
+            const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
 
             let rankPromotionText = '';
+            let promotedRankName = null;
             
             const rankCheck = await pool.query('SELECT rank_value FROM xp_ranks WHERE min_xp <= $1 ORDER BY min_xp DESC LIMIT 1', [newTotalXp]);
             if (rankCheck.rows.length > 0) {
@@ -225,8 +227,8 @@ client.on('interactionCreate', async interaction => {
                     await noblox.setRank(GROUP_ID, robloxUserId, targetRankVal);
                     const roles = await noblox.getRoles(GROUP_ID);
                     const matchedRole = roles.find(r => r.rank === targetRankVal);
-                    const rankName = matchedRole ? matchedRole.name : `Rank ${targetRankVal}`;
-                    rankPromotionText = ` 🎉 Automatically promoted to **${rankName}**!`;
+                    promotedRankName = matchedRole ? matchedRole.name : `Rank ${targetRankVal}`;
+                    rankPromotionText = ` 🎉 Automatically promoted to **${promotedRankName}**!`;
                 } catch (rankErr) {
                     console.error('Auto-rank error:', rankErr);
                     rankPromotionText = ` ⚠️ (Reached XP threshold but failed auto-rank: ${rankErr.message})`;
@@ -235,26 +237,33 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
-            // Send log to primary log channel
+            // Send log to primary log channel (LOG_CHANNEL_ID)
             const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
-                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
+                const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot').catch(() => []);
+                const thumbUrl = headshotThumb[0]?.imageUrl || null;
+
                 const embed = new EmbedBuilder()
                     .setTitle('⭐ XP Awarded')
                     .setColor(0x3498DB)
+                    .setThumbnail(thumbUrl)
                     .addFields(
-                        { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
+                        { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))` },
                         { name: 'XP Added', value: `+${amount} XP (Total: ${newTotalXp})`, inline: true },
                         { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: true }
                     )
                     .setTimestamp();
+
+                if (promotedRankName) {
+                    embed.addFields({ name: '🎖️ XP Requirement Met', value: `Promoted to **${promotedRankName}** due to reaching the XP threshold.` });
+                }
+
                 await logChannel.send({ embeds: [embed] });
             }
 
             // Send log to dedicated XP log channel
             const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
             if (xpLogChannel) {
-                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
                 const xpEmbed = new EmbedBuilder()
                     .setTitle('📈 XP Log Entry')
                     .setColor(0xE67E22)
@@ -282,6 +291,8 @@ client.on('interactionCreate', async interaction => {
 
         try {
             const robloxUserId = await resolveRobloxId(userInput);
+            const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
+
             // Ensure XP doesn't drop below 0 using GREATEST
             const query = `
                 INSERT INTO user_xp (discord_id, roblox_id, xp)
@@ -298,7 +309,6 @@ client.on('interactionCreate', async interaction => {
             // Send log to primary log channel
             const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
-                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
                 const embed = new EmbedBuilder()
                     .setTitle('⚠️ XP Revoked')
                     .setColor(0xE74C3C)
@@ -314,7 +324,6 @@ client.on('interactionCreate', async interaction => {
             // Send log to dedicated XP log channel
             const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
             if (xpLogChannel) {
-                const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
                 const xpEmbed = new EmbedBuilder()
                     .setTitle('📉 XP Log Entry (Revoked)')
                     .setColor(0xC0392B)
@@ -503,7 +512,7 @@ client.on('interactionCreate', async interaction => {
 
             if (isAltAccount && isDiscordAlt) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = 0xE74C3C;
+                embedColor = '0xE74C3C';
             }
 
             const embed = new EmbedBuilder()
@@ -524,7 +533,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `Background check fixed: ${error.message}` });
+            await interaction.editReply({ content: `Background check failed: ${error.message}` });
         }
     }
 });
