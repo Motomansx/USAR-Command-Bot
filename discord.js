@@ -41,7 +41,7 @@ client.once('clientReady', async () => {
             .addIntegerOption(option => 
                 option.setName('userid').setDescription('Roblox User ID').setRequired(true))
             .addIntegerOption(option => 
-                option.setName('rankid').setDescription('Target Rank ID Number').setRequired(true)),
+                option.setName('ranknumber').setDescription('The numeric rank number (1-255)').setRequired(true)),
         new SlashCommandBuilder()
             .setName('xp')
             .setDescription('View user XP profile')
@@ -70,12 +70,12 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'setrank') {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const robloxUserId = interaction.options.getInteger('userid');
-        const rankId = interaction.options.getInteger('rankid');
+        const rankNumber = interaction.options.getInteger('ranknumber');
         
         try {
-            // Using noblox to set the rank directly
-            await noblox.setRank(GROUP_ID, robloxUserId, rankId);
-            await interaction.editReply(`Successfully updated Roblox ID **${robloxUserId}** to rank ID **${rankId}**.`);
+            // Using noblox to set the rank directly using the numeric rank value
+            await noblox.setRank(GROUP_ID, robloxUserId, rankNumber);
+            await interaction.editReply(`Successfully updated Roblox ID **${robloxUserId}** to rank number **${rankNumber}**.`);
         } catch (error) {
             console.error(error);
             await interaction.editReply(`Failed to update rank: ${error.message}`);
