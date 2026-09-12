@@ -290,19 +290,19 @@ client.on('interactionCreate', async interaction => {
             const ranksResult = await pool.query('SELECT min_xp, rank_value FROM xp_ranks ORDER BY min_xp ASC');
             const roles = await noblox.getRoles(GROUP_ID).catch(() => []);
 
-            let description = 'Here are the current XP requirements for division ranks:\n\n';
+            let description = 'Here is how much XP you need to reach each rank:\n\n';
             if (ranksResult.rows.length === 0) {
-                description += '*No rank thresholds have been added to the database yet.*';
+                description += 'No XP ranks have been set up yet.';
             } else {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
                     const roleName = matchedRole ? matchedRole.name : `Rank ID ${row.rank_value}`;
-                    description += `🔹 **${row.min_xp} XP** ➔ **${roleName}**\n`;
+                    description += `🔹 **${roleName}** ➔ Requires **${row.min_xp} XP**\n`;
                 }
             }
 
             const embed = new EmbedBuilder()
-                .setTitle('🎖️ USAR Division XP Ranks')
+                .setTitle('🎖️ Ranks')
                 .setColor(0x2ECC71)
                 .setDescription(description)
                 .setTimestamp();
@@ -310,7 +310,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.reply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            await interaction.reply({ content: 'Failed to fetch XP rank tiers.', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: 'Failed to fetch rank requirements.', flags: MessageFlags.Ephemeral });
         }
     }
 });
