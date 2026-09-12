@@ -74,6 +74,9 @@ client.once('clientReady', async () => {
             .setName('xpranks')
             .setDescription('View the current rank threshold requirements'),
         new SlashCommandBuilder()
+            .setName('grouproles')
+            .setDescription('List all Roblox group roles and their exact rank numbers'),
+        new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
             .addStringOption(option => 
@@ -127,7 +130,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
 
-    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks') && interaction.channelId !== XP_CHANNEL_ID) {
+    if ((commandName === 'givexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
         return interaction.reply({ 
             content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
             flags: MessageFlags.Ephemeral 
@@ -312,7 +315,7 @@ client.on('interactionCreate', async interaction => {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
                     const roleName = matchedRole ? matchedRole.name : `Rank ID ${row.rank_value}`;
-                    description += `🔹 **${roleName}** ➔ Requires **${row.min_xp} XP**\n`;
+                    description += `🔹 **${roleName}** (Rank Value: \`${row.rank_value}\`) ➔ Requires **${row.min_xp} XP**\n`;
                 }
             }
 
@@ -326,6 +329,31 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: 'Failed to fetch rank requirements.', flags: MessageFlags.Ephemeral });
+        }
+    }
+
+    if (commandName === 'grouproles') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const roles = await noblox.getRoles(GROUP_ID);
+            // Sort roles from lowest rank value to highest
+            roles.sort((a, b) => a.rank - b.rank);
+
+            let description = 'Here are all the group roles and their exact rank numbers:\n\n';
+            for (const role of roles) {
+                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('📋 Roblox Group Roles & Rank Numbers')
+                .setColor(0x3498DB)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to fetch group roles: ${error.message}` });
         }
     }
 
@@ -353,7 +381,6 @@ client.on('interactionCreate', async interaction => {
             let badgeCount = 0;
             let cursor = '';
             try {
-                // Get the cookie from noblox to authenticate the request if required by Roblox API
                 const cookie = noblox.cookie || process.env.ROBLOSECURITY;
                 const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
 
@@ -383,9 +410,8 @@ client.on('interactionCreate', async interaction => {
 
             const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
 
-            // Safety / Hazard evaluation heuristic
             let hazardStatus = '🟢 **Status: GOOD (Low Risk)**';
-            let embedColor = 0x2ECC71; // Green
+            let embedColor = 0x2ECC71;
 
             const isAltAccount = typeof robloxAgeDays === 'number' && robloxAgeDays < 30;
             const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
@@ -393,12 +419,12 @@ client.on('interactionCreate', async interaction => {
 
             if (isAltAccount || isDiscordAlt) {
                 hazardStatus = '⚠️ **Status: HAZARD (Potential Alt / New Account)**';
-                embedColor = 0xE67E22; // Orange
+                embedColor = 0xE67E22;
             }
 
             if (isAltAccount && isDiscordAlt) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = 0xE74C3C; // Red
+                embedColor = 0xE74C3C;
             }
 
             const embed = new EmbedBuilder()
