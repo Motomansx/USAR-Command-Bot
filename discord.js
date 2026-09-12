@@ -346,7 +346,9 @@ client.on('interactionCreate', async interaction => {
             const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
             const thumbUrl = headshotThumb[0]?.imageUrl || null;
             const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
-            const pastUsernames = await noblox.getHistory(robloxUserId).catch(() => []);
+            
+            // Replaced missing getHistory function with direct player info check or safe fallback array
+            const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
 
             const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
             const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
