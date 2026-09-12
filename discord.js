@@ -366,7 +366,7 @@ client.on('interactionCreate', async interaction => {
                     { name: '🎖️ USAR Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
                     { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
                     { name: '📋 Clearance & Roles', value: rolesList, inline: false },
-                    { name: '📜 Alias History', value: pastUsernames.length > ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
+                    { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
                 )
                 .setFooter({ text: `Checked by ${interaction.user.tag} • USAR Security Division` })
                 .setTimestamp();
