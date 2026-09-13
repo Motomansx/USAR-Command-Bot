@@ -9,6 +9,8 @@ const pool = new Pool({
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 61252017;
+const CIMT_GROUP_ID = 520955701;
+const OWNER_DISCORD_ID = '1192582006639448185';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
@@ -83,6 +85,9 @@ client.once('clientReady', async () => {
             .setName('grouproles')
             .setDescription('List all Roblox group roles and their exact rank numbers'),
         new SlashCommandBuilder()
+            .setName('cimtroles')
+            .setDescription('List all CIMT group roles and their exact rank numbers (Restricted)'),
+        new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
             .addStringOption(option => 
@@ -127,6 +132,14 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
+
+    // Owner check for cimtroles
+    if (commandName === 'cimtroles' && interaction.user.id !== OWNER_DISCORD_ID) {
+        return interaction.reply({ 
+            content: `❌ You do not have permission to use this command.`, 
+            flags: MessageFlags.Ephemeral 
+        });
+    }
 
     // Channel restriction checks
     if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
@@ -228,7 +241,7 @@ client.on('interactionCreate', async interaction => {
                     const roles = await noblox.getRoles(GROUP_ID);
                     const matchedRole = roles.find(r => r.rank === targetRankVal);
                     promotedRankName = matchedRole ? matchedRole.name : `Rank ${targetRankVal}`;
-                    rankPromotionText = ` 🎉 Automatically promoted to **${promotedRankName}**!`;
+                    rankPromotionText = ` 🎉 XP requirement met! Automatically promoted to **${promotedRankName}**.`;
                 } catch (rankErr) {
                     console.error('Auto-rank error:', rankErr);
                     rankPromotionText = ` ⚠️ (Reached XP threshold but failed auto-rank: ${rankErr.message})`;
@@ -424,7 +437,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
             const roles = await noblox.getRoles(GROUP_ID);
-            // Sort roles from lowest rank value to highest
             roles.sort((a, b) => a.rank - b.rank);
 
             let description = 'Here are all the group roles and their exact rank numbers:\n\n';
@@ -442,6 +454,30 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `Failed to fetch group roles: ${error.message}` });
+        }
+    }
+
+    if (commandName === 'cimtroles') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const roles = await noblox.getRoles(CIMT_GROUP_ID);
+            roles.sort((a, b) => a.rank - b.rank);
+
+            let description = 'Here are all the CIMT group roles and their exact rank numbers:\n\n';
+            for (const role of roles) {
+                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('📋 CIMT Group Roles & Rank Numbers')
+                .setColor(0x9B59B6)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to fetch CIMT group roles: ${error.message}` });
         }
     }
 
@@ -465,7 +501,6 @@ client.on('interactionCreate', async interaction => {
             
             const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
 
-            // Fetch total badge count handling pagination correctly with proper headers
             let badgeCount = 0;
             let cursor = '';
             try {
