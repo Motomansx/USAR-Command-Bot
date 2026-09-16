@@ -11,8 +11,17 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 61252017;
 const CIMT_GROUP_ID = 520955701;
 const OWNER_DISCORD_ID = '1192582006639448185';
+const MAIN_GUILD_ID = '1518101681072508949';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
+
+// Authorized staff roles for management commands
+const AUTHORIZED_ROLE_IDS = [
+    '1518144720281272451',
+    '1518145962428600353',
+    '1518145925304815787',
+    '1518145499318980638'
+];
 
 // Channel Restriction IDs
 const XP_CHANNEL_ID = '1526039744700743821';
@@ -139,6 +148,26 @@ client.on('interactionCreate', async interaction => {
             content: `❌ You do not have permission to use this command.`, 
             flags: MessageFlags.Ephemeral 
         });
+    }
+
+    // Role and Server restrictions for setrank, givexp, revokexp
+    if (['setrank', 'givexp', 'revokexp'].includes(commandName)) {
+        if (interaction.guildId !== MAIN_GUILD_ID) {
+            return interaction.reply({
+                content: `❌ This command can only be used in the main server.`,
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
+        const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        const hasAuthorizedRole = member && member.roles.cache.some(role => AUTHORIZED_ROLE_IDS.includes(role.id));
+
+        if (!hasAuthorizedRole) {
+            return interaction.reply({
+                content: `❌ You do not have the required staff role to use this command.`,
+                flags: MessageFlags.Ephemeral
+            });
+        }
     }
 
     // Channel restriction checks
