@@ -12,6 +12,7 @@ const GROUP_ID = 61252017;
 const CIMT_GROUP_ID = 520955701;
 const OWNER_DISCORD_ID = '1192582006639448185';
 const MAIN_GUILD_ID = '1518101681072508949';
+const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
@@ -23,7 +24,7 @@ const AUTHORIZED_ROLE_IDS = [
     '1518145499318980638'
 ];
 
-// Channel Restriction IDs (Active)
+// Channel Restriction IDs (Active in Main Server)
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
 const BACKGROUND_CHANNEL_ID = '1548441081786663072';
@@ -155,36 +156,38 @@ client.on('interactionCreate', async interaction => {
         return await interaction.guild.leave();
     }
 
-    // Role and Server restrictions for management commands (Main server check remains active for your testing)
-    if (['setrank', 'givexp', 'revokexp'].includes(commandName)) {
-        if (interaction.guildId !== MAIN_GUILD_ID) {
+    // Server restriction check: Only allow commands in MAIN_GUILD_ID or HQ_GUILD_ID
+    if (['setrank', 'givexp', 'revokexp', 'background'].includes(commandName)) {
+        if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
             return interaction.reply({
-                content: `❌ This command can only be used in the main server.`,
+                content: `❌ This command can only be used in authorized servers.`,
                 flags: MessageFlags.Ephemeral
             });
         }
     }
 
-    // Channel restriction checks
-    if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
-        return interaction.reply({ 
-            content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
-            flags: MessageFlags.Ephemeral 
-        });
-    }
+    // Channel restriction checks (Only apply if running in the Main Server, bypasses in HQ Server)
+    if (interaction.guildId === MAIN_GUILD_ID) {
+        if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
+            return interaction.reply({ 
+                content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
 
-    if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
-        return interaction.reply({ 
-            content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
-            flags: MessageFlags.Ephemeral 
-        });
-    }
+        if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
+            return interaction.reply({ 
+                content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
 
-    if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
-        return interaction.reply({ 
-            content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
-            flags: MessageFlags.Ephemeral 
-        });
+        if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
+            return interaction.reply({ 
+                content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
+                flags: MessageFlags.Ephemeral 
+            });
+        }
     }
 
     // Helper function to resolve either a username or ID string into a numeric Roblox User ID
@@ -214,20 +217,23 @@ client.on('interactionCreate', async interaction => {
             await noblox.setRank(GROUP_ID, robloxUserId, rankValue);
             await interaction.editReply(`Successfully updated Roblox user **${targetUsername}** (${robloxUserId}) to **${rankName}**.`);
 
-            const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-            if (logChannel) {
-                const embed = new EmbedBuilder()
-                    .setTitle('📋 Rank Updated')
-                    .setColor(0x00FF00)
-                    .setThumbnail(thumbUrl)
-                    .addFields(
-                        { name: 'Target User', value: `[${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile) (\`${robloxUserId}\`)`, inline: false },
-                        { name: 'New Rank', value: `${rankName} (\`${rankValue}\`)`, inline: true },
-                        { name: 'Ranked By', value: `<@${interaction.user.id}>`, inline: true }
-                    )
-                    .setTimestamp();
+            // Only log if executed inside the main server
+            if (interaction.guildId === MAIN_GUILD_ID) {
+                const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+                if (logChannel) {
+                    const embed = new EmbedBuilder()
+                        .setTitle('📋 Rank Updated')
+                        .setColor(0x00FF00)
+                        .setThumbnail(thumbUrl)
+                        .addFields(
+                            { name: 'Target User', value: `[${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile) (\`${robloxUserId}\`)`, inline: false },
+                            { name: 'New Rank', value: `${rankName} (\`${rankValue}\`)`, inline: true },
+                            { name: 'Ranked By', value: `<@${interaction.user.id}>`, inline: true }
+                        )
+                        .setTimestamp();
 
-                await logChannel.send({ embeds: [embed] });
+                    await logChannel.send({ embeds: [embed] });
+                }
             }
         } catch (error) {
             console.error(error);
@@ -274,44 +280,45 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
-            // Send log to primary log channel (LOG_CHANNEL_ID)
-            const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-            if (logChannel) {
-                const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot').catch(() => []);
-                const thumbUrl = headshotThumb[0]?.imageUrl || null;
+            // Only log if executed inside the main server
+            if (interaction.guildId === MAIN_GUILD_ID) {
+                const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+                if (logChannel) {
+                    const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot').catch(() => []);
+                    const thumbUrl = headshotThumb[0]?.imageUrl || null;
 
-                const embed = new EmbedBuilder()
-                    .setTitle('⭐ XP Awarded')
-                    .setColor(0x3498DB)
-                    .setThumbnail(thumbUrl)
-                    .addFields(
-                        { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))` },
-                        { name: 'XP Added', value: `+${amount} XP (Total: ${newTotalXp})`, inline: true },
-                        { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: true }
-                    )
-                    .setTimestamp();
+                    const embed = new EmbedBuilder()
+                        .setTitle('⭐ XP Awarded')
+                        .setColor(0x3498DB)
+                        .setThumbnail(thumbUrl)
+                        .addFields(
+                            { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))` },
+                            { name: 'XP Added', value: `+${amount} XP (Total: ${newTotalXp})`, inline: true },
+                            { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: true }
+                        )
+                        .setTimestamp();
 
-                if (promotedRankName) {
-                    embed.addFields({ name: '🎖️ XP Requirement Met', value: `Promoted to **${promotedRankName}** due to reaching the XP threshold.` });
+                    if (promotedRankName) {
+                        embed.addFields({ name: '🎖️ XP Requirement Met', value: `Promoted to **${promotedRankName}** due to reaching the XP threshold.` });
+                    }
+
+                    await logChannel.send({ embeds: [embed] });
                 }
 
-                await logChannel.send({ embeds: [embed] });
-            }
-
-            // Send log to dedicated XP log channel
-            const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
-            if (xpLogChannel) {
-                const xpEmbed = new EmbedBuilder()
-                    .setTitle('📈 XP Log Entry')
-                    .setColor(0xE67E22)
-                    .addFields(
-                        { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
-                        { name: 'XP Amount', value: `+${amount} XP`, inline: true },
-                        { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
-                        { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: false }
-                    )
-                    .setTimestamp();
-                await xpLogChannel.send({ embeds: [xpEmbed] });
+                const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
+                if (xpLogChannel) {
+                    const xpEmbed = new EmbedBuilder()
+                        .setTitle('📈 XP Log Entry')
+                        .setColor(0xE67E22)
+                        .addFields(
+                            { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
+                            { name: 'XP Amount', value: `+${amount} XP`, inline: true },
+                            { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
+                            { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: false }
+                        )
+                        .setTimestamp();
+                    await xpLogChannel.send({ embeds: [xpEmbed] });
+                }
             }
 
         } catch (error) {
@@ -342,33 +349,36 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully revoked **${amount} XP** from <@${targetDiscord.id}>. Total XP: **${newTotalXp}**`);
 
-            const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-            if (logChannel) {
-                const embed = new EmbedBuilder()
-                    .setTitle('⚠️ XP Revoked')
-                    .setColor(0xE74C3C)
-                    .addFields(
-                        { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
-                        { name: 'XP Removed', value: `-${amount} XP (Total:${newTotalXp})`, inline: true },
-                        { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
-                    )
-                    .setTimestamp();
-                await logChannel.send({ embeds: [embed] });
-            }
+            // Only log if executed inside the main server
+            if (interaction.guildId === MAIN_GUILD_ID) {
+                const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+                if (logChannel) {
+                    const embed = new EmbedBuilder()
+                        .setTitle('⚠️ XP Revoked')
+                        .setColor(0xE74C3C)
+                        .addFields(
+                            { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
+                            { name: 'XP Removed', value: `-${amount} XP (Total:${newTotalXp})`, inline: true },
+                            { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
+                        )
+                        .setTimestamp();
+                    await logChannel.send({ embeds: [embed] });
+                }
 
-            const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
-            if (xpLogChannel) {
-                const xpEmbed = new EmbedBuilder()
-                    .setTitle('📉 XP Log Entry (Revoked)')
-                    .setColor(0xC0392B)
-                    .addFields(
-                        { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
-                        { name: 'XP Revoked', value: `-${amount} XP`, inline: true },
-                        { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
-                        { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: false }
-                    )
-                    .setTimestamp();
-                await xpLogChannel.send({ embeds: [xpEmbed] });
+                const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
+                if (xpLogChannel) {
+                    const xpEmbed = new EmbedBuilder()
+                        .setTitle('📉 XP Log Entry (Revoked)')
+                        .setColor(0xC0392B)
+                        .addFields(
+                            { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${targetUsername}\)`, inline: true },
+                            { name: 'XP Revoked', value: `-${amount} XP`, inline: true },
+                            { name: 'New Total', value: `**${newTotalXp} XP**`, inline: true },
+                            { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: false }
+                        )
+                        .setTimestamp();
+                    await xpLogChannel.send({ embeds: [xpEmbed] });
+                }
             }
 
         } catch (error) {
