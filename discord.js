@@ -105,7 +105,7 @@ client.once('clientReady', async () => {
                 option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true)),
         new SlashCommandBuilder()
             .setName('meme')
-            .setDescription('Forces the bot to leave the current server')
+            .setDescription('get gif perms')
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
