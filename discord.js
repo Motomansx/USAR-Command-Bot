@@ -15,7 +15,7 @@ const MAIN_GUILD_ID = '1518101681072508949';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
-// Authorized staff roles for management commands
+// Kept for later use, but currently deactivated for command permissions
 const AUTHORIZED_ROLE_IDS = [
     '1518144720281272451',
     '1518145962428600353',
@@ -23,7 +23,7 @@ const AUTHORIZED_ROLE_IDS = [
     '1518145499318980638'
 ];
 
-// Channel Restriction IDs
+// Channel Restriction IDs (Active)
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
 const BACKGROUND_CHANNEL_ID = '1548441081786663072';
@@ -102,7 +102,10 @@ client.once('clientReady', async () => {
             .addStringOption(option => 
                 option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => 
-                option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true))
+                option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true)),
+        new SlashCommandBuilder()
+            .setName('meme')
+            .setDescription('Forces the bot to leave the current server')
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
@@ -140,31 +143,23 @@ client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    const { commandName } = interaction;
-
-    // Owner check for cimtroles
-    if (commandName === 'cimtroles' && interaction.user.id !== OWNER_DISCORD_ID) {
-        return interaction.reply({ 
-            content: `❌ You do not have permission to use this command.`, 
-            flags: MessageFlags.Ephemeral 
-        });
+    // Strict global lock: Only you can use any command right now
+    if (interaction.user.id !== OWNER_DISCORD_ID) {
+        return interaction.reply({ content: `🤷‍♂️`, flags: MessageFlags.Ephemeral });
     }
 
-    // Role and Server restrictions for setrank, givexp, revokexp
+    const { commandName } = interaction;
+
+    if (commandName === 'meme') {
+        await interaction.reply({ content: `👋 Leaving server...`, flags: MessageFlags.Ephemeral });
+        return await interaction.guild.leave();
+    }
+
+    // Role and Server restrictions for management commands (Main server check remains active for your testing)
     if (['setrank', 'givexp', 'revokexp'].includes(commandName)) {
         if (interaction.guildId !== MAIN_GUILD_ID) {
             return interaction.reply({
                 content: `❌ This command can only be used in the main server.`,
-                flags: MessageFlags.Ephemeral
-            });
-        }
-
-        const member = interaction.member || await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        const hasAuthorizedRole = member && member.roles.cache.some(role => AUTHORIZED_ROLE_IDS.includes(role.id));
-
-        if (!hasAuthorizedRole) {
-            return interaction.reply({
-                content: `❌ You do not have the required staff role to use this command.`,
                 flags: MessageFlags.Ephemeral
             });
         }
@@ -335,7 +330,6 @@ client.on('interactionCreate', async interaction => {
             const robloxUserId = await resolveRobloxId(userInput);
             const targetUsername = await noblox.getUsernameFromId(robloxUserId).catch(() => 'Unknown');
 
-            // Ensure XP doesn't drop below 0 using GREATEST
             const query = `
                 INSERT INTO user_xp (discord_id, roblox_id, xp)
                 VALUES ($1, $2, 0)
@@ -348,7 +342,6 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully revoked **${amount} XP** from <@${targetDiscord.id}>. Total XP: **${newTotalXp}**`);
 
-            // Send log to primary log channel
             const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
             if (logChannel) {
                 const embed = new EmbedBuilder()
@@ -356,14 +349,13 @@ client.on('interactionCreate', async interaction => {
                     .setColor(0xE74C3C)
                     .addFields(
                         { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
-                        { name: 'XP Removed', value: `-${amount} XP (Total: ${newTotalXp})`, inline: true },
+                        { name: 'XP Removed', value: `-${amount} XP (Total:${newTotalXp})`, inline: true },
                         { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
                     )
                     .setTimestamp();
                 await logChannel.send({ embeds: [embed] });
             }
 
-            // Send log to dedicated XP log channel
             const xpLogChannel = await client.channels.fetch(XP_LOG_CHANNEL_ID).catch(() => null);
             if (xpLogChannel) {
                 const xpEmbed = new EmbedBuilder()
@@ -402,7 +394,6 @@ client.on('interactionCreate', async interaction => {
                 thumbUrl = headshotThumb[0]?.imageUrl || null;
             }
 
-            // Calculate next rank threshold
             const nextRankQuery = await pool.query('SELECT min_xp, rank_value FROM xp_ranks WHERE min_xp > $1 ORDER BY min_xp ASC LIMIT 1', [userXp]);
             let nextRankText = 'Max Rank Reached 🎉';
             if (nextRankQuery.rows.length > 0) {
@@ -576,7 +567,7 @@ client.on('interactionCreate', async interaction => {
 
             if (isAltAccount && isDiscordAlt) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = '0xE74C3C';
+                embedColor = 0xE74C3C;
             }
 
             const embed = new EmbedBuilder()
