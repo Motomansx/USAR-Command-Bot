@@ -16,7 +16,7 @@ const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
-// Kept for later use, but currently deactivated for command permissions[cite: 1, 2]
+// Kept for later use, but currently deactivated for command permissions
 const AUTHORIZED_ROLE_IDS = [
     '1518144720281272451',
     '1518145962428600353',
@@ -24,7 +24,7 @@ const AUTHORIZED_ROLE_IDS = [
     '1518145499318980638'
 ];
 
-// Channel Restriction IDs (Active in Main Server)[cite: 1, 2]
+// Channel Restriction IDs (Active in Main Server)
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
 const BACKGROUND_CHANNEL_ID = '1548441081786663072';
@@ -35,7 +35,7 @@ client.once('clientReady', async () => {
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
-        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} \vert{} ID ->${currentUser.UserID}`);[cite: 1, 2]
+        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} \vert{} ID ->${currentUser.UserID}`);
     } catch (err) {
         console.error('[USAR Command] Failed to log into Roblox with cookie:', err);
     }
@@ -55,7 +55,7 @@ client.once('clientReady', async () => {
                 rank_value INT NOT NULL
             );
         `);
-        console.log('[USAR Command] Database tables and columns verified.');[cite: 1, 2]
+        console.log('[USAR Command] Database tables and columns verified.');
     } catch (err) {
         console.error('[USAR Command] Database setup error:', err);
     }
@@ -124,7 +124,7 @@ client.once('clientReady', async () => {
             Routes.applicationCommands(client.user.id),
             { body: commands },
         );
-        console.log('[USAR Command] Slash commands registered.');[cite: 1, 2]
+        console.log('[USAR Command] Slash commands registered.');
     } catch (error) {
         console.error(error);
     }
@@ -152,7 +152,7 @@ client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    // Strict global lock: Only you can use any command right now[cite: 1, 2]
+    // Strict global lock: Only you can use any command right now
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         return interaction.reply({ content: `🤷‍♂️`, flags: MessageFlags.Ephemeral });
     }
@@ -160,7 +160,7 @@ client.on('interactionCreate', async interaction => {
     const { commandName } = interaction;
 
     if (commandName === 'meme') {
-        await interaction.reply({ content: `👋 Leaving server...`, flags: MessageFlags.Ephemeral });[cite: 1, 2]
+        await interaction.reply({ content: `👋 Leaving server...`, flags: MessageFlags.Ephemeral });
         return await interaction.guild.leave();
     }
 
@@ -201,7 +201,7 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Server restriction check: Only allow commands in MAIN_GUILD_ID or HQ_GUILD_ID[cite: 1, 2]
+    // Server restriction check: Only allow commands in MAIN_GUILD_ID or HQ_GUILD_ID
     if (['setrank', 'givexp', 'revokexp', 'background'].includes(commandName)) {
         if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
             return interaction.reply({
@@ -211,7 +211,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // Channel restriction checks (Only apply if running in the Main Server, bypasses in HQ Server)[cite: 1, 2]
+    // Channel restriction checks (Only apply if running in the Main Server, bypasses in HQ Server)
     if (interaction.guildId === MAIN_GUILD_ID) {
         if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
             return interaction.reply({ 
@@ -235,7 +235,7 @@ client.on('interactionCreate', async interaction => {
         }
     }
 
-    // Helper function to resolve either a username or ID string into a numeric Roblox User ID[cite: 1, 2]
+    // Helper function to resolve either a username or ID string into a numeric Roblox User ID
     async function resolveRobloxId(input) {
         if (/^\d+$/.test(input)) {
             return parseInt(input, 10);
@@ -262,7 +262,7 @@ client.on('interactionCreate', async interaction => {
             await noblox.setRank(GROUP_ID, robloxUserId, rankValue);
             await interaction.editReply(`Successfully updated Roblox user **${targetUsername}** (${robloxUserId}) to **${rankName}**.`);
 
-            // Only log if executed inside the main server[cite: 1, 2]
+            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
@@ -325,7 +325,7 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
-            // Only log if executed inside the main server[cite: 1, 2]
+            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
@@ -394,7 +394,7 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully revoked **${amount} XP** from <@${targetDiscord.id}>. Total XP: **${newTotalXp}**`);
 
-            // Only log if executed inside the main server[cite: 1, 2]
+            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
