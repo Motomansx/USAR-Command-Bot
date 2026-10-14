@@ -35,7 +35,7 @@ client.once('clientReady', async () => {
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
-        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} | ID -> ${currentUser.UserID}`);
+        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} \vert{} ID ->${currentUser.UserID}`);
     } catch (err) {
         console.error('[USAR Command] Failed to log into Roblox with cookie:', err);
     }
@@ -105,6 +105,9 @@ client.once('clientReady', async () => {
             .addUserOption(option => 
                 option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('botaccount')
+            .setDescription('Check which Roblox account the bot is currently using to rank people'),
+        new SlashCommandBuilder()
             .setName('meme')
             .setDescription('get gif perms')
     ].map(command => command.toJSON());
@@ -154,6 +157,31 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'meme') {
         await interaction.reply({ content: `👋 Leaving server...`, flags: MessageFlags.Ephemeral });
         return await interaction.guild.leave();
+    }
+
+    if (commandName === 'botaccount') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const currentUser = await noblox.getCurrentUser();
+            const headshotThumb = await noblox.getPlayerThumbnail(currentUser.UserID, '420x420', 'png', false, 'Headshot').catch(() => []);
+            const thumbUrl = headshotThumb[0]?.imageUrl || null;
+
+            const embed = new EmbedBuilder()
+                .setTitle('🤖 Active Bot Roblox Account')
+                .setColor(0x3498DB)
+                .setThumbnail(thumbUrl)
+                .addFields(
+                    { name: 'Username', value: `[${currentUser.UserName}](https://www.roblox.com/users/${currentUser.UserID}/profile)`, inline: true },
+                    { name: 'User ID', value: `\`${currentUser.UserID}\``, inline: true }
+                )
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to fetch bot Roblox account info: ${error.message}` });
+        }
+        return;
     }
 
     // Server restriction check: Only allow commands in MAIN_GUILD_ID or HQ_GUILD_ID
