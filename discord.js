@@ -35,7 +35,7 @@ client.once('clientReady', async () => {
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
-        console.log(`[USAR Command] Logged into Roblox as cookie account: ${currentUser.UserName}`);
+        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} | ID -> ${currentUser.UserID}`);
     } catch (err) {
         console.error('[USAR Command] Failed to log into Roblox with cookie:', err);
     }
