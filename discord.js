@@ -113,6 +113,11 @@ client.once('clientReady', async () => {
             .addStringOption(option => 
                 option.setName('name').setDescription('New nickname for the bot').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('setserveravatar')
+            .setDescription('Changes the bot profile picture for this specific server only')
+            .addAttachmentOption(option => 
+                option.setName('image').setDescription('Upload the image file for this server avatar').setRequired(true)),
+        new SlashCommandBuilder()
             .setName('meme')
             .setDescription('get gif perms')
     ].map(command => command.toJSON());
@@ -172,6 +177,19 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: `❌ Failed to change nickname: ${error.message}`, flags: MessageFlags.Ephemeral });
+        }
+        return;
+    }
+
+    if (commandName === 'setserveravatar') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const attachment = interaction.options.getAttachment('image');
+        try {
+            await interaction.guild.members.me.edit({ avatar: attachment.url });
+            await interaction.editReply(`✅ Successfully updated the bot's server-specific profile picture for this server!`);
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply(`❌ Failed to change server avatar: ${error.message}`);
         }
         return;
     }
@@ -622,7 +640,7 @@ client.on('interactionCreate', async interaction => {
 
             if (isAltAccount && isDiscordAlt) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = '0xE74C3C';
+                embedColor = 0xE74C3C;
             }
 
             const embed = new EmbedBuilder()
