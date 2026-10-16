@@ -147,6 +147,10 @@ client.once('clientReady', async () => {
             .setDescription('Completely remove/wipe a discharge record by its ID')
             .addIntegerOption(option => option.setName('record_id').setDescription('The Discharge Record ID number to delete').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('viewdischarges')
+            .setDescription('View all logged member discharge records')
+            .addUserOption(option => option.setName('user').setDescription('Filter by specific Discord user').setRequired(false)),
+        new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
             .addStringOption(option => 
@@ -257,7 +261,7 @@ client.on('interactionCreate', async interaction => {
 
     // Since you are OWNER_DISCORD_ID, all server & channel restrictions below are bypassed automatically for you!
     if (interaction.user.id !== OWNER_DISCORD_ID) {
-        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge', 'updatedischarge', 'removedischarge'].includes(commandName)) {
+        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge', 'updatedischarge', 'removedischarge', 'viewdischarges'].includes(commandName)) {
             if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
                 return interaction.reply({
                     content: `❌ This command can only be used in authorized servers.`,
@@ -431,6 +435,46 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `❌ Failed to remove discharge record: ${error.message}` });
+        }
+        return;
+    }
+
+    if (commandName === 'viewdischarges') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const targetUser = interaction.options.getUser('user');
+
+        try {
+            let query = 'SELECT * FROM discharges';
+            let params = [];
+
+            if (targetUser) {
+                query += ' WHERE discord_id = $1';
+                params.push(targetUser.id);
+            }
+            query += ' ORDER BY id DESC LIMIT 20';
+
+            const res = await pool.query(query, params);
+            const discharges = res.rows;
+
+            if (discharges.length === 0) {
+                return await interaction.editReply({ content: `📂 No discharge records found in the database.` });
+            }
+
+            let description = `Found **${discharges.length}** discharge record(s):\n\n`;
+            for (const d of discharges) {
+                description += `> **[ID: #${d.id}]**\n> Name: ${d.roblox_username} | Discord: <@${d.discord_id}>\n> Position: ${d.position} (${d.company}) | Type: **${d.type}**\n> Reason: ${d.reason}\n\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`📋 Disciplinary Discharge Database`)
+                .setColor(0xE67E22)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to fetch discharge logs: ${error.message}` });
         }
         return;
     }
@@ -817,7 +861,6 @@ client.on('interactionCreate', async interaction => {
             const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
             const isDiscordAlt = discordAccountAgeDays < 30;
 
-            // Check if there is an active Dishonorable discharge
             const hasDishonorable = dischargeQuery.rows.some(d => d.type.toLowerCase() === 'dishonorable');
 
             if (isAltAccount || isDiscordAlt) {
