@@ -8,7 +8,7 @@ const pool = new Pool({
 });
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const GROUP_ID = 338694123; // Updated to your new main group ID
+const GROUP_ID = 338694123;
 const CIMT_GROUP_ID = 520955701;
 const OWNER_DISCORD_ID = '1192582006639448185';
 const MAIN_GUILD_ID = '1518101681072508949';
@@ -24,7 +24,7 @@ const AUTHORIZED_ROLE_IDS = [
     '1518145499318980638'
 ];
 
-// Channel Restriction IDs (Active in Main Server)
+// Channel Restriction IDs (Active in Main Server for others)
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
 const BACKGROUND_CHANNEL_ID = '1548441081786663072';
@@ -201,37 +201,40 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Server restriction check: Only allow commands in MAIN_GUILD_ID or HQ_GUILD_ID
-    if (['setrank', 'givexp', 'revokexp', 'background'].includes(commandName)) {
-        if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
-            return interaction.reply({
-                content: `❌ This command can only be used in authorized servers.`,
-                flags: MessageFlags.Ephemeral
-            });
-        }
-    }
-
-    // Channel restriction checks (Only apply if running in the Main Server, bypasses in HQ Server)
-    if (interaction.guildId === MAIN_GUILD_ID) {
-        if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
-            return interaction.reply({ 
-                content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
-                flags: MessageFlags.Ephemeral 
-            });
+    // Since you are OWNER_DISCORD_ID, all server & channel restrictions below are bypassed automatically for you!
+    if (interaction.user.id !== OWNER_DISCORD_ID) {
+        // Server restriction check for others
+        if (['setrank', 'givexp', 'revokexp', 'background'].includes(commandName)) {
+            if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
+                return interaction.reply({
+                    content: `❌ This command can only be used in authorized servers.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
         }
 
-        if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
-            return interaction.reply({ 
-                content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
-                flags: MessageFlags.Ephemeral 
-            });
-        }
+        // Channel restriction checks for others in Main Server
+        if (interaction.guildId === MAIN_GUILD_ID) {
+            if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
+                return interaction.reply({ 
+                    content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
 
-        if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
-            return interaction.reply({ 
-                content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
-                flags: MessageFlags.Ephemeral 
-            });
+            if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
+                return interaction.reply({ 
+                    content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
+
+            if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
+                return interaction.reply({ 
+                    content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
+                    flags: MessageFlags.Ephemeral 
+                });
+            }
         }
     }
 
@@ -622,7 +625,7 @@ client.on('interactionCreate', async interaction => {
 
             if (isAltAccount && isDiscordAlt) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = 0xE74C3C;
+                embedColor = '0xE74C3C';
             }
 
             const embed = new EmbedBuilder()
