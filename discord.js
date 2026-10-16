@@ -119,12 +119,28 @@ client.once('clientReady', async () => {
             .addStringOption(option => option.setName('time').setDescription('Time (e.g. N/A or duration)').setRequired(true))
             .addStringOption(option => option.setName('evoc').setDescription('EVOC Certif (Y/N)').setRequired(true))
             .addStringOption(option => option.setName('reason').setDescription('Reason for discharge').setRequired(true))
-            .addStringOption(option => option.setName('type').setDescription('Type (e.g. Dishonorable, Honorable)').setRequired(true)),
+            .addStringOption(option => 
+                option.setName('type')
+                    .setDescription('Select discharge type')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'Honorable', value: 'Honorable' },
+                        { name: 'General', value: 'General' },
+                        { name: 'Dishonorable', value: 'Dishonorable' }
+                    )),
         new SlashCommandBuilder()
             .setName('updatedischarge')
             .setDescription('Update an existing discharge record type or reason')
             .addIntegerOption(option => option.setName('record_id').setDescription('The Discharge Record ID number').setRequired(true))
-            .addStringOption(option => option.setName('type').setDescription('New Type (e.g. Honorable, General)').setRequired(true))
+            .addStringOption(option => 
+                option.setName('type')
+                    .setDescription('New discharge type choice')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'Honorable', value: 'Honorable' },
+                        { name: 'General', value: 'General' },
+                        { name: 'Dishonorable', value: 'Dishonorable' }
+                    ))
             .addStringOption(option => option.setName('reason').setDescription('New Reason update').setRequired(true)),
         new SlashCommandBuilder()
             .setName('removedischarge')
