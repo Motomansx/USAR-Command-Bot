@@ -8,7 +8,7 @@ const pool = new Pool({
 });
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const GROUP_ID = 61252017;
+const GROUP_ID = 338694123; // Updated to your new main group ID
 const CIMT_GROUP_ID = 520955701;
 const OWNER_DISCORD_ID = '1192582006639448185';
 const MAIN_GUILD_ID = '1518101681072508949';
@@ -63,7 +63,7 @@ client.once('clientReady', async () => {
     const commands = [
         new SlashCommandBuilder()
             .setName('setrank')
-            .setDescription('Set the rank of a user in the USAR group')
+            .setDescription('Set the rank of a user in the group')
             .addStringOption(option => 
                 option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addStringOption(option => 
@@ -112,11 +112,6 @@ client.once('clientReady', async () => {
             .setDescription('Changes the bot nickname in this server')
             .addStringOption(option => 
                 option.setName('name').setDescription('New nickname for the bot').setRequired(true)),
-        new SlashCommandBuilder()
-            .setName('setserveravatar')
-            .setDescription('Changes the bot profile picture for this specific server only')
-            .addAttachmentOption(option => 
-                option.setName('image').setDescription('Upload the image file for this server avatar').setRequired(true)),
         new SlashCommandBuilder()
             .setName('meme')
             .setDescription('get gif perms')
@@ -177,19 +172,6 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: `❌ Failed to change nickname: ${error.message}`, flags: MessageFlags.Ephemeral });
-        }
-        return;
-    }
-
-    if (commandName === 'setserveravatar') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        const attachment = interaction.options.getAttachment('image');
-        try {
-            await interaction.guild.members.me.edit({ avatar: attachment.url });
-            await interaction.editReply(`✅ Successfully updated the bot's server-specific profile picture for this server!`);
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply(`❌ Failed to change server avatar: ${error.message}`);
         }
         return;
     }
@@ -650,12 +632,12 @@ client.on('interactionCreate', async interaction => {
                 .addFields(
                     { name: '🔍 Security Evaluation', value: hazardStatus, inline: false },
                     { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}\n• **Badges Earned:** ${badgeCount}`, inline: false },
-                    { name: '🎖️ USAR Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
+                    { name: '🎖️ Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
                     { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
                     { name: '📋 Clearance & Roles', value: rolesList, inline: false },
                     { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
                 )
-                .setFooter({ text: `Checked by ${interaction.user.tag} • USAR Security Division` })
+                .setFooter({ text: `Checked by ${interaction.user.tag} • Security Division` })
                 .setTimestamp();
 
             await interaction.editReply({ embeds: [embed] });
