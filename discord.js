@@ -105,6 +105,11 @@ client.once('clientReady', async () => {
             .addUserOption(option => 
                 option.setName('discord').setDescription('Discord user to cross-reference').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('auditlogs')
+            .setDescription('View recent Roblox group audit logs')
+            .addIntegerOption(option => 
+                option.setName('limit').setDescription('Number of logs to fetch (default 10, max 50)').setRequired(false)),
+        new SlashCommandBuilder()
             .setName('botaccount')
             .setDescription('Check which Roblox account the bot is currently using to rank people'),
         new SlashCommandBuilder()
@@ -245,6 +250,50 @@ client.on('interactionCreate', async interaction => {
         } else {
             return await noblox.getIdFromUsername(input);
         }
+    }
+
+    if (commandName === 'auditlogs') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const limit = interaction.options.getInteger('limit') || 10;
+
+        try {
+            const logs = await noblox.getAuditLog(GROUP_ID, Math.min(limit, 50));
+
+            if (!logs || logs.length === 0) {
+                return await interaction.editReply({ content: `📂 No recent audit logs found for this group.` });
+            }
+
+            let description = `Showing the last **${logs.length}** audit log entries:\n\n`;
+            
+            for (const log of logs) {
+                const actorName = log.actor?.user?.username || 'Unknown User';
+                const actionType = log.actionType || 'Unknown Action';
+                const targetInfo = log.description?.TargetName || log.description?.NewValue || '';
+                const date = log.created ? new Date(log.created).toLocaleString() : 'Unknown Date';
+
+                description += `🔹 **[${date}]** \n• **Actor:** \`${actorName}\`\n• **Action:** \`${actionType}\``;
+                if (targetInfo) {
+                    description += `\n• **Details:** \`${JSON.stringify(targetInfo)}\``;
+                }
+                description += `\n\n`;
+            }
+
+            if (description.length > 4000) {
+                description = description.substring(0, 3996) + '...';
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`📜 Roblox Group Audit Logs`)
+                .setColor(0x3498DB)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to fetch audit logs: ${error.message} (Make sure the bot rank has permission to view audit logs in the Roblox group settings).` });
+        }
+        return;
     }
 
     if (commandName === 'setrank') {
