@@ -54,8 +54,20 @@ client.once('clientReady', async () => {
                 min_xp INT PRIMARY KEY,
                 rank_value INT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS discharges (
+                id SERIAL PRIMARY KEY,
+                roblox_username VARCHAR(64),
+                discord_id VARCHAR(32),
+                position VARCHAR(64),
+                company VARCHAR(64),
+                time_logged VARCHAR(32),
+                evoc_cert VARCHAR(8),
+                reason TEXT,
+                type VARCHAR(32)
+            );
         `);
-        console.log('[USAR Command] Database tables and columns verified.');
+        console.log('[USAR Command] Database tables, columns, and discharge logs verified.');
     } catch (err) {
         console.error('[USAR Command] Database setup error:', err);
     }
@@ -97,6 +109,17 @@ client.once('clientReady', async () => {
         new SlashCommandBuilder()
             .setName('cimtroles')
             .setDescription('List all CIMT group roles and their exact rank numbers (Restricted)'),
+        new SlashCommandBuilder()
+            .setName('discharge')
+            .setDescription('Log a member discharge record into the database')
+            .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
+            .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
+            .addStringOption(option => option.setName('position').setDescription('Position (e.g. BSOP/SRTA)').setRequired(true))
+            .addStringOption(option => option.setName('company').setDescription('Company (e.g. SRT)').setRequired(true))
+            .addStringOption(option => option.setName('time').setDescription('Time (e.g. N/A or duration)').setRequired(true))
+            .addStringOption(option => option.setName('evoc').setDescription('EVOC Certif (Y/N)').setRequired(true))
+            .addStringOption(option => option.setName('reason').setDescription('Reason for discharge').setRequired(true))
+            .addStringOption(option => option.setName('type').setDescription('Type (e.g. Dishonorable, Honorable)').setRequired(true)),
         new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
@@ -208,8 +231,7 @@ client.on('interactionCreate', async interaction => {
 
     // Since you are OWNER_DISCORD_ID, all server & channel restrictions below are bypassed automatically for you!
     if (interaction.user.id !== OWNER_DISCORD_ID) {
-        // Server restriction check for others
-        if (['setrank', 'givexp', 'revokexp', 'background'].includes(commandName)) {
+        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge'].includes(commandName)) {
             if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
                 return interaction.reply({
                     content: `❌ This command can only be used in authorized servers.`,
@@ -218,7 +240,6 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // Channel restriction checks for others in Main Server
         if (interaction.guildId === MAIN_GUILD_ID) {
             if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
                 return interaction.reply({ 
@@ -257,11 +278,11 @@ client.on('interactionCreate', async interaction => {
         const limit = interaction.options.getInteger('limit') || 10;
 
         try {
-            const response = await noblox.getAuditLog(GROUP_ID, Math.min(limit, 50));
+            const response = await noblox.getAuditLog(GROUP_ID, Math.min(limit, 50)).catch(() => null);
             const logs = Array.isArray(response) ? response : (response?.data || response?.items || []);
 
             if (!logs || logs.length === 0) {
-                return await interaction.editReply({ content: `📂 No recent audit logs found for this group.` });
+                return await interaction.editReply({ content: `📂 Note: Roblox's group audit log endpoint returned no items or is restricted for this bot account configuration. (Ensure bot has proper roleset permissions).` });
             }
 
             let description = `Showing the last **${logs.length}** audit log entries:\n\n`;
@@ -297,6 +318,49 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    if (commandName === 'discharge') {
+        await interaction.deferReply();
+        const userInput = interaction.options.getString('user');
+        const targetDiscord = interaction.options.getUser('discord');
+        const position = interaction.options.getString('position');
+        const company = interaction.options.getString('company');
+        const timeLogged = interaction.options.getString('time');
+        const evocCert = interaction.options.getString('evoc');
+        const reason = interaction.options.getString('reason');
+        const type = interaction.options.getString('type');
+
+        try {
+            const robloxUserId = await resolveRobloxId(userInput);
+            const robloxUsername = await noblox.getUsernameFromId(robloxUserId);
+
+            await pool.query(`
+                INSERT INTO discharges (roblox_username, discord_id, position, company, time_logged, evoc_cert, reason, type)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, [robloxUsername, targetDiscord.id, position, company, timeLogged, evocCert, reason, type]);
+
+            const embed = new EmbedBuilder()
+                .setTitle('🚨 Discharge Logged Successfully')
+                .setColor(0xE74C3C)
+                .addFields(
+                    { name: 'Name', value: robloxUsername, inline: true },
+                    { name: 'Discord ID', value: targetDiscord.id, inline: true },
+                    { name: 'Position', value: position, inline: true },
+                    { name: 'Company', value: company, inline: true },
+                    { name: 'Time', value: timeLogged, inline: true },
+                    { name: 'EVOC Certif', value: evocCert, inline: true },
+                    { name: 'Reason', value: reason, inline: false },
+                    { name: 'Type', value: type, inline: true }
+                )
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to log discharge: ${error.message}` });
+        }
+        return;
+    }
+
     if (commandName === 'setrank') {
         await interaction.deferReply();
         const userInput = interaction.options.getString('user');
@@ -315,7 +379,6 @@ client.on('interactionCreate', async interaction => {
             await noblox.setRank(GROUP_ID, robloxUserId, rankValue);
             await interaction.editReply(`Successfully updated Roblox user **${targetUsername}** (${robloxUserId}) to **${rankName}**.`);
 
-            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
@@ -378,7 +441,6 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully awarded **${amount} XP** to <@${targetDiscord.id}>. Total XP: **${newTotalXp}**${rankPromotionText}`);
 
-            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
@@ -391,7 +453,7 @@ client.on('interactionCreate', async interaction => {
                         .setThumbnail(thumbUrl)
                         .addFields(
                             { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))` },
-                            { name: 'XP Added', value: `+${amount} XP (Total: ${newTotalXp})`, inline: true },
+                            { name: 'XP Added', value: `+${amount} XP (Total:${newTotalXp})`, inline: true },
                             { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: true }
                         )
                         .setTimestamp();
@@ -447,7 +509,6 @@ client.on('interactionCreate', async interaction => {
 
             await interaction.editReply(`Successfully revoked **${amount} XP** from <@${targetDiscord.id}>. Total XP: **${newTotalXp}**`);
 
-            // Only log if executed inside the main server
             if (interaction.guildId === MAIN_GUILD_ID) {
                 const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
                 if (logChannel) {
@@ -456,7 +517,7 @@ client.on('interactionCreate', async interaction => {
                         .setColor(0xE74C3C)
                         .addFields(
                             { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
-                            { name: 'XP Removed', value: `-${amount} XP (Total:${newTotalXp})`, inline: true },
+                            { name: 'XP Removed', value: `-${amount} XP (Total: ${newTotalXp})`, inline: true },
                             { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
                         )
                         .setTimestamp();
@@ -544,161 +605,4 @@ client.on('interactionCreate', async interaction => {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
                     const roleName = matchedRole ? matchedRole.name : `Rank ID ${row.rank_value}`;
-                    description += `🔹 **${roleName}** ➔ Requires **${row.min_xp} XP**\n`;
-                }
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle('🎖️ Ranks')
-                .setColor(0x2ECC71)
-                .setDescription(description)
-                .setTimestamp();
-
-            await interaction.reply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.reply({ content: 'Failed to fetch rank requirements.', flags: MessageFlags.Ephemeral });
-        }
-    }
-
-    if (commandName === 'grouproles') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const roles = await noblox.getRoles(GROUP_ID);
-            roles.sort((a, b) => a.rank - b.rank);
-
-            let description = 'Here are all the group roles and their exact rank numbers:\n\n';
-            for (const role of roles) {
-                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle('📋 Roblox Group Roles & Rank Numbers')
-                .setColor(0x3498DB)
-                .setDescription(description)
-                .setTimestamp();
-
-            await interaction.editReply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ content: `Failed to fetch group roles: ${error.message}` });
-        }
-    }
-
-    if (commandName === 'cimtroles') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const roles = await noblox.getRoles(CIMT_GROUP_ID);
-            roles.sort((a, b) => a.rank - b.rank);
-
-            let description = 'Here are all the CIMT group roles and their exact rank numbers:\n\n';
-            for (const role of roles) {
-                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle('📋 CIMT Group Roles & Rank Numbers')
-                .setColor(0x9B59B6)
-                .setDescription(description)
-                .setTimestamp();
-
-            await interaction.editReply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ content: `Failed to fetch CIMT group roles: ${error.message}` });
-        }
-    }
-
-    if (commandName === 'background') {
-        await interaction.deferReply();
-        const userInput = interaction.options.getString('user');
-        const targetDiscord = interaction.options.getUser('discord');
-        const member = await interaction.guild.members.fetch(targetDiscord.id).catch(() => null);
-
-        try {
-            const robloxUserId = await resolveRobloxId(userInput);
-            const targetUsername = await noblox.getUsernameFromId(robloxUserId);
-            
-            const playerInfo = await noblox.getPlayerInfo(robloxUserId).catch(() => null);
-            const joinDate = playerInfo?.joinDate ? new Date(playerInfo.joinDate) : null;
-            const robloxAgeDays = joinDate ? Math.floor((Date.now() - joinDate.getTime()) / (1000 * 60 * 60 * 24)) : 'Unknown';
-
-            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
-            const thumbUrl = headshotThumb[0]?.imageUrl || null;
-            const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
-            
-            const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
-
-            let badgeCount = 0;
-            let cursor = '';
-            try {
-                const cookie = noblox.cookie || process.env.ROBLOSECURITY;
-                const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
-
-                do {
-                    const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
-                    const response = await fetch(url, { headers });
-                    const data = await response.json();
-                    
-                    if (data && Array.isArray(data.data)) {
-                        badgeCount += data.data.length;
-                        cursor = data.nextPageCursor;
-                    } else {
-                        break;
-                    }
-                } while (cursor);
-            } catch (err) {
-                console.error('Failed to fetch full badge list:', err);
-                badgeCount = 'Unknown';
-            }
-
-            const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
-            const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
-            const rolesList = member ? member.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => `<@&${r.id}>`).join(', ') || 'None' : 'Not in server';
-
-            const dbResult = await pool.query('SELECT xp FROM user_xp WHERE discord_id = $1', [targetDiscord.id]);
-            const userXp = dbResult.rows.length > 0 ? dbResult.rows[0].xp : 0;
-
-            const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
-
-            let hazardStatus = '🟢 **Status: GOOD (Low Risk)**';
-            let embedColor = 0x2ECC71;
-
-            const isAltAccount = typeof robloxAgeDays === 'number' && robloxAgeDays < 30;
-            const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
-            const isDiscordAlt = discordAccountAgeDays < 30;
-
-            if (isAltAccount || isDiscordAlt) {
-                hazardStatus = '⚠️ **Status: HAZARD (Potential Alt / New Account)**';
-                embedColor = 0xE67E22;
-            }
-
-            if (isAltAccount && isDiscordAlt) {
-                hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Alt / Risk)**';
-                embedColor = '0xE74C3C';
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle(`🛡️ CLASSIFIED BACKGROUND CHECK: ${targetUsername}`)
-                .setColor(embedColor)
-                .setThumbnail(thumbUrl)
-                .addFields(
-                    { name: '🔍 Security Evaluation', value: hazardStatus, inline: false },
-                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}\n• **Badges Earned:** ${badgeCount}`, inline: false },
-                    { name: '🎖️ Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
-                    { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
-                    { name: '📋 Clearance & Roles', value: rolesList, inline: false },
-                    { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
-                )
-                .setFooter({ text: `Checked by ${interaction.user.tag} • Security Division` })
-                .setTimestamp();
-
-            await interaction.editReply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ content: `Background check failed: ${error.message}` });
-        }
-    }
-});
-
-client.login(process.env.DISCORD_BOT_TOKEN);
+                    description += `🔹 **${roleName}**
