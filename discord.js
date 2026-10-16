@@ -257,7 +257,8 @@ client.on('interactionCreate', async interaction => {
         const limit = interaction.options.getInteger('limit') || 10;
 
         try {
-            const logs = await noblox.getAuditLog(GROUP_ID, Math.min(limit, 50));
+            const response = await noblox.getAuditLog(GROUP_ID, Math.min(limit, 50));
+            const logs = Array.isArray(response) ? response : (response?.data || response?.items || []);
 
             if (!logs || logs.length === 0) {
                 return await interaction.editReply({ content: `📂 No recent audit logs found for this group.` });
@@ -266,14 +267,14 @@ client.on('interactionCreate', async interaction => {
             let description = `Showing the last **${logs.length}** audit log entries:\n\n`;
             
             for (const log of logs) {
-                const actorName = log.actor?.user?.username || 'Unknown User';
-                const actionType = log.actionType || 'Unknown Action';
-                const targetInfo = log.description?.TargetName || log.description?.NewValue || '';
+                const actorName = log.actor?.user?.username || log.agent?.username || 'Unknown User';
+                const actionType = log.actionType || log.type || 'Unknown Action';
+                const targetInfo = log.description?.TargetName || log.description?.NewValue || log.target || '';
                 const date = log.created ? new Date(log.created).toLocaleString() : 'Unknown Date';
 
                 description += `🔹 **[${date}]** \n• **Actor:** \`${actorName}\`\n• **Action:** \`${actionType}\``;
                 if (targetInfo) {
-                    description += `\n• **Details:** \`${JSON.stringify(targetInfo)}\``;
+                    description += `\n• **Details:** \`${typeof targetInfo === 'object' ? JSON.stringify(targetInfo) : targetInfo}\``;
                 }
                 description += `\n\n`;
             }
@@ -291,7 +292,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `❌ Failed to fetch audit logs: ${error.message} (Make sure the bot rank has permission to view audit logs in the Roblox group settings).` });
+            await interaction.editReply({ content: `❌ Failed to fetch audit logs: ${error.message}` });
         }
         return;
     }
