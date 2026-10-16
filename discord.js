@@ -805,7 +805,7 @@ client.on('interactionCreate', async interaction => {
                 for (const d of dischargeQuery.rows) {
                     recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> EVOC Certif: ${d.evoc_cert}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
                 }
-                dischargeSection = `🚨 **DISCHARGE RECORDS FOUND:**${recordsText}`;
+                dischargeSection = `📋 **DISCHARGE RECORDS FOUND:**${recordsText}`;
             }
 
             const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
@@ -817,12 +817,15 @@ client.on('interactionCreate', async interaction => {
             const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
             const isDiscordAlt = discordAccountAgeDays < 30;
 
-            if (isAltAccount || isDiscordAlt || dischargeQuery.rows.length > 0) {
-                hazardStatus = '⚠️ **Status: HAZARD (Potential Risk / Discharge Record)**';
+            // Check if there is an active Dishonorable discharge
+            const hasDishonorable = dischargeQuery.rows.some(d => d.type.toLowerCase() === 'dishonorable');
+
+            if (isAltAccount || isDiscordAlt) {
+                hazardStatus = '⚠️ **Status: HAZARD (Potential Alt / New Account)**';
                 embedColor = 0xE67E22;
             }
 
-            if ((isAltAccount && isDiscordAlt) || dischargeQuery.rows.some(d => d.type.toLowerCase().includes('dishonorable'))) {
+            if ((isAltAccount && isDiscordAlt) || hasDishonorable) {
                 hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Risk / Dishonorable Discharge)**';
                 embedColor = 0xE74C3C;
             }
