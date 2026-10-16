@@ -121,6 +121,16 @@ client.once('clientReady', async () => {
             .addStringOption(option => option.setName('reason').setDescription('Reason for discharge').setRequired(true))
             .addStringOption(option => option.setName('type').setDescription('Type (e.g. Dishonorable, Honorable)').setRequired(true)),
         new SlashCommandBuilder()
+            .setName('updatedischarge')
+            .setDescription('Update an existing discharge record type or reason')
+            .addIntegerOption(option => option.setName('record_id').setDescription('The Discharge Record ID number').setRequired(true))
+            .addStringOption(option => option.setName('type').setDescription('New Type (e.g. Honorable, General)').setRequired(true))
+            .addStringOption(option => option.setName('reason').setDescription('New Reason update').setRequired(true)),
+        new SlashCommandBuilder()
+            .setName('removedischarge')
+            .setDescription('Completely remove/wipe a discharge record by its ID')
+            .addIntegerOption(option => option.setName('record_id').setDescription('The Discharge Record ID number to delete').setRequired(true)),
+        new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
             .addStringOption(option => 
@@ -231,7 +241,7 @@ client.on('interactionCreate', async interaction => {
 
     // Since you are OWNER_DISCORD_ID, all server & channel restrictions below are bypassed automatically for you!
     if (interaction.user.id !== OWNER_DISCORD_ID) {
-        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge'].includes(commandName)) {
+        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge', 'updatedischarge', 'removedischarge'].includes(commandName)) {
             if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
                 return interaction.reply({
                     content: `❌ This command can only be used in authorized servers.`,
@@ -333,13 +343,16 @@ client.on('interactionCreate', async interaction => {
             const robloxUserId = await resolveRobloxId(userInput);
             const robloxUsername = await noblox.getUsernameFromId(robloxUserId);
 
-            await pool.query(`
+            const res = await pool.query(`
                 INSERT INTO discharges (roblox_username, discord_id, position, company, time_logged, evoc_cert, reason, type)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id;
             `, [robloxUsername, targetDiscord.id, position, company, timeLogged, evocCert, reason, type]);
 
+            const recordId = res.rows[0].id;
+
             const embed = new EmbedBuilder()
-                .setTitle('🚨 Discharge Logged Successfully')
+                .setTitle(`🚨 Discharge Logged Successfully (ID: #${recordId})`)
                 .setColor(0xE74C3C)
                 .addFields(
                     { name: 'Name', value: robloxUsername, inline: true },
@@ -357,6 +370,51 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `Failed to log discharge: ${error.message}` });
+        }
+        return;
+    }
+
+    if (commandName === 'updatedischarge') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const recordId = interaction.options.getInteger('record_id');
+        const newType = interaction.options.getString('type');
+        const newReason = interaction.options.getString('reason');
+
+        try {
+            const check = await pool.query('SELECT * FROM discharges WHERE id = $1', [recordId]);
+            if (check.rows.length === 0) {
+                return await interaction.editReply({ content: `❌ No discharge record found with ID **#${recordId}**.` });
+            }
+
+            await pool.query(
+                'UPDATE discharges SET type = $1, reason = $2 WHERE id = $3',
+                [newType, newReason, recordId]
+            );
+
+            await interaction.editReply({ content: `✅ Successfully updated discharge record **#${recordId}** to **Type: ${newType}**.` });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to update discharge record: ${error.message}` });
+        }
+        return;
+    }
+
+    if (commandName === 'removedischarge') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const recordId = interaction.options.getInteger('record_id');
+
+        try {
+            const check = await pool.query('SELECT * FROM discharges WHERE id = $1', [recordId]);
+            if (check.rows.length === 0) {
+                return await interaction.editReply({ content: `❌ No discharge record found with ID **#${recordId}**.` });
+            }
+
+            await pool.query('DELETE FROM discharges WHERE id = $1', [recordId]);
+
+            await interaction.editReply({ content: `✅ Successfully wiped/removed discharge record **#${recordId}** from the database.` });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to remove discharge record: ${error.message}` });
         }
         return;
     }
@@ -720,7 +778,6 @@ client.on('interactionCreate', async interaction => {
             const dbResult = await pool.query('SELECT xp FROM user_xp WHERE discord_id = $1', [targetDiscord.id]);
             const userXp = dbResult.rows.length > 0 ? dbResult.rows[0].xp : 0;
 
-            // Fetch any discharge records for this user (by Discord ID or Roblox Username)
             const dischargeQuery = await pool.query(
                 'SELECT * FROM discharges WHERE discord_id = $1 OR LOWER(roblox_username) = LOWER($2)', 
                 [targetDiscord.id, targetUsername]
@@ -730,7 +787,7 @@ client.on('interactionCreate', async interaction => {
             if (dischargeQuery.rows.length > 0) {
                 let recordsText = '';
                 for (const d of dischargeQuery.rows) {
-                    recordsText += `\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> EVOC Certif: ${d.evoc_cert}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
+                    recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> EVOC Certif: ${d.evoc_cert}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
                 }
                 dischargeSection = `🚨 **DISCHARGE RECORDS FOUND:**${recordsText}`;
             }
