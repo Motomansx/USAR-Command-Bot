@@ -453,7 +453,7 @@ client.on('interactionCreate', async interaction => {
                         .setThumbnail(thumbUrl)
                         .addFields(
                             { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))` },
-                            { name: 'XP Added', value: `+${amount} XP (Total:${newTotalXp})`, inline: true },
+                            { name: 'XP Added', value: `+${amount} XP (Total: ${newTotalXp})`, inline: true },
                             { name: 'Awarded By', value: `<@${interaction.user.id}>`, inline: true }
                         )
                         .setTimestamp();
@@ -517,7 +517,7 @@ client.on('interactionCreate', async interaction => {
                         .setColor(0xE74C3C)
                         .addFields(
                             { name: 'Member', value: `<@${targetDiscord.id}> ([${targetUsername}](https://www.roblox.com/users/${robloxUserId}/profile))`, inline: false },
-                            { name: 'XP Removed', value: `-${amount} XP (Total: ${newTotalXp})`, inline: true },
+                            { name: 'XP Removed', value: `-${amount} XP (Total:${newTotalXp})`, inline: true },
                             { name: 'Revoked By', value: `<@${interaction.user.id}>`, inline: true }
                         )
                         .setTimestamp();
@@ -605,4 +605,177 @@ client.on('interactionCreate', async interaction => {
                 for (const row of ranksResult.rows) {
                     const matchedRole = roles.find(r => r.rank === row.rank_value);
                     const roleName = matchedRole ? matchedRole.name : `Rank ID ${row.rank_value}`;
-                    description += `🔹 **${roleName}**
+                    description += `🔹 **${roleName}** ➔ Requires **${row.min_xp} XP**\n`;
+                }
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('🎖️ Ranks')
+                .setColor(0x2ECC71)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.reply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.reply({ content: 'Failed to fetch rank requirements.', flags: MessageFlags.Ephemeral });
+        }
+    }
+
+    if (commandName === 'grouproles') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const roles = await noblox.getRoles(GROUP_ID);
+            roles.sort((a, b) => a.rank - b.rank);
+
+            let description = 'Here are all the group roles and their exact rank numbers:\n\n';
+            for (const role of roles) {
+                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('📋 Roblox Group Roles & Rank Numbers')
+                .setColor(0x3498DB)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to fetch group roles: ${error.message}` });
+        }
+    }
+
+    if (commandName === 'cimtroles') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            const roles = await noblox.getRoles(CIMT_GROUP_ID);
+            roles.sort((a, b) => a.rank - b.rank);
+
+            let description = 'Here are all the CIMT group roles and their exact rank numbers:\n\n';
+            for (const role of roles) {
+                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('📋 CIMT Group Roles & Rank Numbers')
+                .setColor(0x9B59B6)
+                .setDescription(description)
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Failed to fetch CIMT group roles: ${error.message}` });
+        }
+    }
+
+    if (commandName === 'background') {
+        await interaction.deferReply();
+        const userInput = interaction.options.getString('user');
+        const targetDiscord = interaction.options.getUser('discord');
+        const member = await interaction.guild.members.fetch(targetDiscord.id).catch(() => null);
+
+        try {
+            const robloxUserId = await resolveRobloxId(userInput);
+            const targetUsername = await noblox.getUsernameFromId(robloxUserId);
+            
+            const playerInfo = await noblox.getPlayerInfo(robloxUserId).catch(() => null);
+            const joinDate = playerInfo?.joinDate ? new Date(playerInfo.joinDate) : null;
+            const robloxAgeDays = joinDate ? Math.floor((Date.now() - joinDate.getTime()) / (1000 * 60 * 60 * 24)) : 'Unknown';
+
+            const headshotThumb = await noblox.getPlayerThumbnail(robloxUserId, '420x420', 'png', false, 'Headshot');
+            const thumbUrl = headshotThumb[0]?.imageUrl || null;
+            const currentRankInGroup = await noblox.getRankNameInGroup(GROUP_ID, robloxUserId);
+            
+            const pastUsernames = playerInfo?.oldNames ? playerInfo.oldNames : [];
+
+            let badgeCount = 0;
+            let cursor = '';
+            try {
+                const cookie = noblox.cookie || process.env.ROBLOSECURITY;
+                const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
+
+                do {
+                    const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
+                    const response = await fetch(url, { headers });
+                    const data = await response.json();
+                    
+                    if (data && Array.isArray(data.data)) {
+                        badgeCount += data.data.length;
+                        cursor = data.nextPageCursor;
+                    } else {
+                        break;
+                    }
+                } while (cursor);
+            } catch (err) {
+                console.error('Failed to fetch full badge list:', err);
+                badgeCount = 'Unknown';
+            }
+
+            const discordCreated = Math.floor(targetDiscord.createdTimestamp / 1000);
+            const joinedServer = member ? Math.floor(member.joinedTimestamp / 1000) : 'Unknown';
+            const rolesList = member ? member.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => `<@&${r.id}>`).join(', ') || 'None' : 'Not in server';
+
+            const dbResult = await pool.query('SELECT xp FROM user_xp WHERE discord_id = $1', [targetDiscord.id]);
+            const userXp = dbResult.rows.length > 0 ? dbResult.rows[0].xp : 0;
+
+            // Fetch any discharge records for this user (by Discord ID or Roblox Username)
+            const dischargeQuery = await pool.query(
+                'SELECT * FROM discharges WHERE discord_id = $1 OR LOWER(roblox_username) = LOWER($2)', 
+                [targetDiscord.id, targetUsername]
+            );
+            
+            let dischargeSection = '• **Discharge Records:** None found 🟢';
+            if (dischargeQuery.rows.length > 0) {
+                let recordsText = '';
+                for (const d of dischargeQuery.rows) {
+                    recordsText += `\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> EVOC Certif: ${d.evoc_cert}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
+                }
+                dischargeSection = `🚨 **DISCHARGE RECORDS FOUND:**${recordsText}`;
+            }
+
+            const ageDisplay = typeof robloxAgeDays === 'number' ? `~${Math.floor(robloxAgeDays / 365)} years (${robloxAgeDays} days)` : 'Unknown';
+
+            let hazardStatus = '🟢 **Status: GOOD (Low Risk)**';
+            let embedColor = 0x2ECC71;
+
+            const isAltAccount = typeof robloxAgeDays === 'number' && robloxAgeDays < 30;
+            const discordAccountAgeDays = Math.floor((Date.now() - targetDiscord.createdTimestamp) / (1000 * 60 * 60 * 24));
+            const isDiscordAlt = discordAccountAgeDays < 30;
+
+            if (isAltAccount || isDiscordAlt || dischargeQuery.rows.length > 0) {
+                hazardStatus = '⚠️ **Status: HAZARD (Potential Risk / Discharge Record)**';
+                embedColor = 0xE67E22;
+            }
+
+            if ((isAltAccount && isDiscordAlt) || dischargeQuery.rows.some(d => d.type.toLowerCase().includes('dishonorable'))) {
+                hazardStatus = '🚨 **Status: HIGH HAZARD (Severe Risk / Dishonorable Discharge)**';
+                embedColor = 0xE74C3C;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🛡️ CLASSIFIED BACKGROUND CHECK: ${targetUsername}`)
+                .setColor(embedColor)
+                .setThumbnail(thumbUrl)
+                .addFields(
+                    { name: '🔍 Security Evaluation', value: hazardStatus, inline: false },
+                    { name: '👤 Roblox Identity', value: `[Profile Link](https://www.roblox.com/users/${robloxUserId}/profile)\n• **ID:** \`${robloxUserId}\`\n• **Account Age:** ${ageDisplay}\n• **Badges Earned:** ${badgeCount}`, inline: false },
+                    { name: '🎖️ Group Status', value: `• **Current Rank:** ${currentRankInGroup || 'Civilian / Unranked'}\n• **Total Recorded XP:** ${userXp} XP`, inline: false },
+                    { name: '⚠️ Disciplinary Records', value: dischargeSection, inline: false },
+                    { name: '💬 Discord Identity', value: `• **User:** <@${targetDiscord.id}>\n• **Account Created:** <t:${discordCreated}:R>\n• **Server Join:** <t:${joinedServer}:R>`, inline: false },
+                    { name: '📋 Clearance & Roles', value: rolesList, inline: false },
+                    { name: '📜 Alias History', value: pastUsernames.length > 0 ? pastUsernames.join(', ') : 'No recorded name changes', inline: false }
+                )
+                .setFooter({ text: `Checked by ${interaction.user.tag} • Security Division` })
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `Background check failed: ${error.message}` });
+        }
+    }
+});
+
+client.login(process.env.DISCORD_BOT_TOKEN);
