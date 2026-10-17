@@ -67,6 +67,7 @@ client.once('clientReady', async () => {
                 awarded_by VARCHAR(32),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            ALTER TABLE awards ADD COLUMN IF NOT EXISTS category VARCHAR(64);
 
             CREATE TABLE IF NOT EXISTS award_board_config (
                 guild_id VARCHAR(32) PRIMARY KEY,
@@ -213,7 +214,6 @@ client.once('clientReady', async () => {
     }
 });
 
-// Helper function to render a spreadsheet table view inside Discord
 async function updateAwardBoard(guild) {
     try {
         const configRes = await pool.query('SELECT channel_id, message_id FROM award_board_config WHERE guild_id = $1', [guild.id]);
@@ -232,7 +232,6 @@ async function updateAwardBoard(guild) {
         if (awardsRes.rows.length === 0) {
             tableRows = 'No records found in database.';
         } else {
-            // Spreadsheet Header Row
             tableRows += `${'ID'.padEnd(4)} \vert{}${'ROBLOX USERNAME'.padEnd(18)} | ${'AWARD / DECORATION'.padEnd(26)} \vert{}${'CATEGORY'}\n`;
             tableRows += `${'-'.repeat(4)}-+-${'-'.repeat(18)}-+-${'-'.repeat(26)}-+-${'-'.repeat(20)}\n`;
 
@@ -282,7 +281,6 @@ client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    // Strict global lock: Only you can use any command right now
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         return interaction.reply({ content: `🤷‍♂️`, flags: MessageFlags.Ephemeral });
     }
@@ -911,7 +909,7 @@ client.on('interactionCreate', async interaction => {
                 const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
 
                 do {
-                    const url = `[https://badges.roblox.com/v1/users/$](https://badges.roblox.com/v1/users/$){robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
+                    const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
                     const response = await fetch(url, { headers });
                     const data = await response.json();
                     
