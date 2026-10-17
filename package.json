@@ -7,8 +7,12 @@
     "start": "node discord.js"
   },
   "dependencies": {
+    "canvas": "^3.2.3",
     "discord.js": "^14.14.0",
     "noblox.js": "^9.0.0",
     "pg": "^8.11.3"
+  },
+  "allowScripts": {
+    "canvas@3.2.3": true
   }
 }

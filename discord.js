@@ -1,6 +1,7 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 const { Pool } = require('pg');
+const { createCanvas } = require('canvas');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -15,7 +16,7 @@ const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
-// Channel Restriction IDs (Active in Main Server for others)
+// Channel Restriction IDs
 const XP_CHANNEL_ID = '1526039744700743821';
 const SETRANK_CHANNEL_ID = '1526041058553630730';
 const BACKGROUND_CHANNEL_ID = '1548441081786663072';
@@ -174,11 +175,11 @@ client.once('clientReady', async () => {
             .addStringOption(option => option.setName('reason').setDescription('Reason for award').setRequired(true)),
         new SlashCommandBuilder()
             .setName('revokeaward')
-            .setDescription('Revoke an award record by ID and update the live spreadsheet board')
+            .setDescription('Revoke an award record by ID and update the visual board')
             .addIntegerOption(option => option.setName('award_id').setDescription('The Award Record ID to remove').setRequired(true)),
         new SlashCommandBuilder()
             .setName('postawardboard')
-            .setDescription('Posts the persistent live spreadsheet-style Award Board in this channel'),
+            .setDescription('Posts the persistent live image-rendered Award Board in this channel'),
         new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
@@ -214,6 +215,80 @@ client.once('clientReady', async () => {
     }
 });
 
+// Canvas Image Generator for Spreadsheet Grid
+async function generateSpreadsheetImage() {
+    const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC LIMIT 15');
+    const awards = awardsRes.rows;
+
+    const width = 900;
+    const height = 180 + Math.max(awards.length, 1) * 35;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Background (Army Green Theme)
+    ctx.fillStyle = '#1e382b';
+    ctx.fillRect(0, 0, width, height);
+
+    // Border Frame
+    ctx.strokeStyle = '#8c8c8c';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(15, 15, width - 30, height - 30);
+
+    // Header Box
+    ctx.fillStyle = '#14261c';
+    ctx.fillRect(40, 40, width - 80, 70);
+    ctx.strokeStyle = '#c0c0c0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 40, width - 80, 70);
+
+    // Header Text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE', width / 2, 82);
+
+    // Table Columns Header
+    let startY = 135;
+    ctx.fillStyle = '#2d4d3c';
+    ctx.fillRect(40, startY, width - 80, 35);
+    ctx.strokeRect(40, startY, width - 80, 35);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('ID', 55, startY + 22);
+    ctx.fillText('ROBLOX USERNAME', 110, startY + 22);
+    ctx.fillText('AWARD / DECORATION', 350, startY + 22);
+    ctx.fillText('CATEGORY', 640, startY + 22);
+
+    // Table Rows
+    startY += 35;
+    if (awards.length === 0) {
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(40, startY, width - 80, 35);
+        ctx.strokeRect(40, startY, width - 80, 35);
+        ctx.fillStyle = '#dddddd';
+        ctx.font = 'italic 13px sans-serif';
+        ctx.fillText('No awards currently logged in database.', 60, startY + 22);
+    } else {
+        awards.forEach((a, index) => {
+            const rowY = startY + (index * 35);
+            ctx.fillStyle = index % 2 === 0 ? '#333b37' : '#2b332f';
+            ctx.fillRect(40, rowY, width - 80, 35);
+            ctx.strokeRect(40, rowY, width - 80, 35);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '13px sans-serif';
+            ctx.fillText(`#${a.id}`, 55, rowY + 22);
+            ctx.fillText(a.roblox_username || 'Unknown', 110, rowY + 22);
+            ctx.fillText(a.award_name || 'N/A', 350, rowY + 22);
+            ctx.fillText(a.category || 'General', 640, rowY + 22);
+        });
+    }
+
+    return canvas.toBuffer();
+}
+
 async function updateAwardBoard(guild) {
     try {
         const configRes = await pool.query('SELECT channel_id, message_id FROM award_board_config WHERE guild_id = $1', [guild.id]);
@@ -226,36 +301,19 @@ async function updateAwardBoard(guild) {
         const message = await channel.messages.fetch(message_id).catch(() => null);
         if (!message) return;
 
-        const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC LIMIT 20');
-        
-        let tableRows = '';
-        if (awardsRes.rows.length === 0) {
-            tableRows = 'No records found in database.';
-        } else {
-            tableRows += `${'ID'.padEnd(4)} \vert{}${'ROBLOX USERNAME'.padEnd(18)} | ${'AWARD / DECORATION'.padEnd(26)} \vert{}${'CATEGORY'}\n`;
-            tableRows += `${'-'.repeat(4)}-+-${'-'.repeat(18)}-+-${'-'.repeat(26)}-+-${'-'.repeat(20)}\n`;
-
-            for (const a of awardsRes.rows) {
-                const idStr = `#${a.id}`.padEnd(4);
-                const userStr = (a.roblox_username || 'Unknown').substring(0, 18).padEnd(18);
-                const awardStr = (a.award_name || 'N/A').substring(0, 26).padEnd(26);
-                const catStr = (a.category || 'General').substring(0, 20);
-                tableRows += `${idStr} \vert{}${userStr} | ${awardStr} \vert{}${catStr}\n`;
-            }
-        }
-
-        const spreadsheetView = `\`\`\`sql\n[ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE GRID]\n\n${tableRows}\n\`\`\``;
+        const imageBuffer = await generateSpreadsheetImage();
+        const attachment = new AttachmentBuilder(imageBuffer, { name: 'decorations_database.png' });
 
         const embed = new EmbedBuilder()
-            .setTitle('📊 USAR MASTER DECORATIONS SPREADSHEET')
+            .setTitle('🏛️ USAR MASTER DECORATIONS SPREADSHEET BOARD')
             .setColor(0x1E4620)
-            .setDescription(spreadsheetView)
+            .setImage('attachment://decorations_database.png')
             .setFooter({ text: 'Live Synchronized Database • Auto-Updates on /giveaward' })
             .setTimestamp();
 
-        await message.edit({ embeds: [embed] });
+        await message.edit({ embeds: [embed], files: [attachment] });
     } catch (err) {
-        console.error('Failed to update Spreadsheet Award Board:', err);
+        console.error('Failed to update Image Spreadsheet Board:', err);
     }
 }
 
@@ -335,13 +393,16 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'postawardboard') {
         await interaction.deferReply();
         try {
+            const imageBuffer = await generateSpreadsheetImage();
+            const attachment = new AttachmentBuilder(imageBuffer, { name: 'decorations_database.png' });
+
             const embed = new EmbedBuilder()
-                .setTitle('📊 USAR MASTER DECORATIONS SPREADSHEET')
+                .setTitle('🏛️ USAR MASTER DECORATIONS SPREADSHEET BOARD')
                 .setColor(0x1E4620)
-                .setDescription('```sql\n[Initializing Spreadsheet Grid...]\n```')
+                .setImage('attachment://decorations_database.png')
                 .setTimestamp();
 
-            const boardMsg = await interaction.channel.send({ embeds: [embed] });
+            const boardMsg = await interaction.channel.send({ embeds: [embed], files: [attachment] });
 
             await pool.query(`
                 INSERT INTO award_board_config (guild_id, channel_id, message_id)
@@ -350,11 +411,10 @@ client.on('interactionCreate', async interaction => {
                 DO UPDATE SET channel_id = $2, message_id = $3;
             `, [interaction.guildId, interaction.channelId, boardMsg.id]);
 
-            await updateAwardBoard(interaction.guild);
-            await interaction.editReply({ content: '✅ Spreadsheet Grid Award Board created and linked to this channel!' });
+            await interaction.editReply({ content: '✅ Visual Spreadsheet Image Board created and linked to this channel!' });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `❌ Failed to create Spreadsheet Board: ${error.message}` });
+            await interaction.editReply({ content: `❌ Failed to create Image Board: ${error.message}` });
         }
         return;
     }
@@ -381,7 +441,7 @@ client.on('interactionCreate', async interaction => {
             await updateAwardBoard(interaction.guild);
 
             const embed = new EmbedBuilder()
-                .setTitle('🎖️ Award Logged & Spreadsheet Updated')
+                .setTitle('🎖️ Award Logged & Spreadsheet Board Updated')
                 .setColor(0x1E4620)
                 .addFields(
                     { name: 'Award ID', value: `#${awardId}`, inline: true },
@@ -413,7 +473,7 @@ client.on('interactionCreate', async interaction => {
             await pool.query('DELETE FROM awards WHERE id = $1', [awardId]);
             await updateAwardBoard(interaction.guild);
 
-            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the spreadsheet grid.` });
+            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the visual board image.` });
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `❌ Failed to revoke award: ${error.message}` });
