@@ -1,4 +1,16 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, EmbedBuilder } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    REST, 
+    Routes, 
+    SlashCommandBuilder, 
+    MessageFlags, 
+    EmbedBuilder, 
+    ActionRowBuilder, 
+    StringSelectMenuBuilder, 
+    ButtonBuilder, 
+    ButtonStyle 
+} = require('discord.js');
 const noblox = require('noblox.js');
 const { Pool } = require('pg');
 
@@ -15,10 +27,32 @@ const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
-// Channel Restriction IDs
-const XP_CHANNEL_ID = '1526039744700743821';
-const SETRANK_CHANNEL_ID = '1526041058553630730';
-const BACKGROUND_CHANNEL_ID = '1548441081786663072';
+// Defined Award Categories & Badges Structure
+const AWARD_CATALOG = {
+    'Badges': [
+        'Driver and Mechanic Badge',
+        'Basic Parachutist Badge',
+        'Air Assault Badge'
+    ],
+    'Ribbons': [
+        'Army Achievement Medal (AAM)',
+        'Army Good Conduct Medal',
+        'National Defense Service Medal (NDSM)'
+    ],
+    'Foreign Awards': [
+        'UK Operational Service Medal',
+        'NATO Medal',
+        'German Armed Forces Badge of Military Proficiency'
+    ],
+    'Cords': [
+        'Infantry Blue Cord'
+    ],
+    'Tabs': [
+        'AIRBORNE Tab',
+        'RANGER Tab',
+        'SAPPER Tab'
+    ]
+};
 
 client.once('clientReady', async () => {
     console.log(`[USAR Command] Logged in as ${client.user.tag}`);
@@ -26,7 +60,7 @@ client.once('clientReady', async () => {
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
-        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} | ID -> ${currentUser.UserID}`);
+        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} \vert{} ID ->${currentUser.UserID}`);
     } catch (err) {
         console.error('[USAR Command] Failed to log into Roblox with cookie:', err);
     }
@@ -160,25 +194,26 @@ client.once('clientReady', async () => {
             .setDescription('Award a medal/ribbon/badge to a member')
             .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
-            .addStringOption(option => option.setName('award').setDescription('Award Name (e.g. Combat Action Badge)').setRequired(true))
+            .addStringOption(option => option.setName('award').setDescription('Award Name').setRequired(true))
             .addStringOption(option => 
                 option.setName('category')
                     .setDescription('Award Category Tab')
                     .setRequired(true)
                     .addChoices(
-                        { name: 'Badges Database', value: 'Badges Database' },
-                        { name: 'Ribbons Database', value: 'Ribbons Database' },
-                        { name: 'Foreign Awards Database', value: 'Foreign Awards Database' },
-                        { name: 'Unit Awards', value: 'Unit Awards' }
+                        { name: 'Badges', value: 'Badges' },
+                        { name: 'Ribbons', value: 'Ribbons' },
+                        { name: 'Foreign Awards', value: 'Foreign Awards' },
+                        { name: 'Cords', value: 'Cords' },
+                        { name: 'Tabs', value: 'Tabs' }
                     ))
             .addStringOption(option => option.setName('reason').setDescription('Reason for award').setRequired(true)),
         new SlashCommandBuilder()
             .setName('revokeaward')
-            .setDescription('Revoke an award record by ID and update the board embed')
+            .setDescription('Revoke an award record by ID and update the board')
             .addIntegerOption(option => option.setName('award_id').setDescription('The Award Record ID to remove').setRequired(true)),
         new SlashCommandBuilder()
             .setName('postawardboard')
-            .setDescription('Posts the persistent live embed-styled Award Board in this channel'),
+            .setDescription('Posts the persistent live tab-navigated Award Board spreadsheet in this channel'),
         new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
@@ -214,55 +249,70 @@ client.once('clientReady', async () => {
     }
 });
 
-// Helper function to build the Embed Spreadsheet Board
-async function buildAwardBoardEmbed() {
+// Helper function to build the Tabbed Spreadsheet Embed & Interactive Components
+async function buildAwardBoardPage(activeTab = 'Badges') {
     const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC');
-    const awards = awardsRes.rows;
+    const allAwards = awardsRes.rows;
 
     const embed = new EmbedBuilder()
-        .setTitle('🏛️ ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE')
+        .setTitle('📊 U.S. ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE')
         .setColor(0x1E4620)
-        .setDescription('```ansi\n\u001b[1;32m[ USAR OFFICIAL DECORATIONS & AWARDS REGISTRY ]\u001b[0m\n```\nOfficial database recording all awarded Badges, Ribbons, Foreign Awards, and Unit Commendations.')
-        .setFooter({ text: 'Official Quartermaster Corps Registry • Live Real-time Database' })
+        .setThumbnail('https://i.imgur.com/8QYf9Zj.png')
+        .setFooter({ text: 'Official QMC Database • Select a tab below to switch sheet pages' })
         .setTimestamp();
 
-    if (awards.length === 0) {
-        embed.addFields({ name: '📂 Registry Status', value: '*No commendations currently recorded on the award board.*' });
-    } else {
-        // Group awards by category like a multi-tab spreadsheet
-        const categories = ['Badges Database', 'Ribbons Database', 'Foreign Awards Database', 'Unit Awards'];
+    let tabDescription = `\`\`\`ansi\n\u001b[1;32m[ CURRENT TAB: ${activeTab.toUpperCase()} ]\u001b[0m\n\`\`\`\n`;
 
-        for (const cat of categories) {
-            const catAwards = awards.filter(a => a.category === cat);
-            if (catAwards.length > 0) {
-                let categoryContent = '';
-                for (const a of catAwards) {
-                    categoryContent += `` +
-                        `🔹 \`[ID: #${a.id}]\` **${a.award_name}**\n` +
-                        `└ **Recipient:** <@${a.discord_id}> (\`${a.roblox_username}\`)\n` +
-                        `└ **Reason:** ${a.reason}\n\n`;
-                }
-
-                if (categoryContent.length > 1024) {
-                    categoryContent = categoryContent.substring(0, 1020) + '...';
-                }
-
-                embed.addFields({ name: `📌 ${cat.toUpperCase()}`, value: categoryContent });
+    if (activeTab === 'Master Roster') {
+        tabDescription += `**Complete Member Commendations Registry (${allAwards.length} Total Logs):**\n\n`;
+        if (allAwards.length === 0) {
+            tabDescription += '*No records logged in database.*';
+        } else {
+            for (const a of allAwards.slice(-20)) {
+                tabDescription += `🔹 \`[ID: #${a.id}]\` **${a.award_name}** (${a.category})\n└ Recipient: <@${a.discord_id}> (\`${a.roblox_username}\`)\n\n`;
             }
         }
+    } else {
+        const catAwards = allAwards.filter(a => a.category === activeTab);
+        const catBadges = AWARD_CATALOG[activeTab] || [];
 
-        // Catch-all for awards without a defined category choice
-        const uncategorized = awards.filter(a => !categories.includes(a.category));
-        if (uncategorized.length > 0) {
-            let uncatContent = '';
-            for (const a of uncategorized) {
-                uncatContent += `🔹 \`[ID: #${a.id}]\` **${a.award_name}** — Recipient: <@${a.discord_id}> (\`${a.roblox_username}\`)\n`;
+        tabDescription += `**Recognized ${activeTab} Specifications:**\n`;
+        for (const b of catBadges) {
+            tabDescription += `• **${b}**\n`;
+        }
+        tabDescription += `\n**Logged Personnel Records (${catAwards.length}):**\n\n`;
+
+        if (catAwards.length === 0) {
+            tabDescription += '*No members have been awarded decorations under this category yet.*';
+        } else {
+            for (const a of catAwards) {
+                tabDescription += `🔹 \`[ID: #${a.id}]\` **${a.award_name}**\n└ Recipient: <@${a.discord_id}> (\`${a.roblox_username}\`)\n└ Reason: ${a.reason}\n\n`;
             }
-            embed.addFields({ name: '📌 OTHER DECORATIONS', value: uncatContent.substring(0, 1024) });
         }
     }
 
-    return embed;
+    if (tabDescription.length > 4000) {
+        tabDescription = tabDescription.substring(0, 3996) + '...';
+    }
+
+    embed.setDescription(tabDescription);
+
+    // Interactive Select Dropdown for Page Tabs
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('award_board_tab_select')
+        .setPlaceholder(`📄 Switch Sheet Page (Current: ${activeTab})`)
+        .addOptions([
+            { label: 'Badges Database', value: 'Badges', description: 'Driver, Mechanic, Parachutist, Air Assault Badges', emoji: '🏷️' },
+            { label: 'Ribbons Database', value: 'Ribbons', description: 'AAM, Good Conduct, NDSM Medals & Ribbons', emoji: '🎖️' },
+            { label: 'Foreign Awards Database', value: 'Foreign Awards', description: 'UK OSM, NATO Medal, German Armed Forces Badge', emoji: '🌐' },
+            { label: 'Cords Database', value: 'Cords', description: 'Infantry Blue Cord and Authorized Cords', emoji: '🎗️' },
+            { label: 'Tabs Database', value: 'Tabs', description: 'AIRBORNE, RANGER, and SAPPER Tabs', emoji: '🔖' },
+            { label: 'Master Log Roster', value: 'Master Roster', description: 'View full history log of all awards combined', emoji: '📋' }
+        ]);
+
+    const rowSelect = new ActionRowBuilder().addComponents(selectMenu);
+
+    return { embed, components: [rowSelect] };
 }
 
 async function updateAwardBoard(guild) {
@@ -277,14 +327,26 @@ async function updateAwardBoard(guild) {
         const message = await channel.messages.fetch(message_id).catch(() => null);
         if (!message) return;
 
-        const embed = await buildAwardBoardEmbed();
-        await message.edit({ embeds: [embed] });
+        const { embed, components } = await buildAwardBoardPage('Badges');
+        await message.edit({ embeds: [embed], components });
     } catch (err) {
-        console.error('Failed to update Embed Award Board:', err);
+        console.error('Failed to update Award Board:', err);
     }
 }
 
 client.on('interactionCreate', async interaction => {
+    // Handle Interactive Tab Select Menu
+    if (interaction.isStringSelectMenu() && interaction.customId === 'award_board_tab_select') {
+        const selectedTab = interaction.values[0];
+        try {
+            const { embed, components } = await buildAwardBoardPage(selectedTab);
+            await interaction.update({ embeds: [embed], components });
+        } catch (err) {
+            console.error('Failed to switch board tab:', err);
+        }
+        return;
+    }
+
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'setrank') {
             const focusedValue = interaction.options.getFocused().toLowerCase();
@@ -360,8 +422,8 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'postawardboard') {
         await interaction.deferReply();
         try {
-            const embed = await buildAwardBoardEmbed();
-            const boardMsg = await interaction.channel.send({ embeds: [embed] });
+            const { embed, components } = await buildAwardBoardPage('Badges');
+            const boardMsg = await interaction.channel.send({ embeds: [embed], components });
 
             await pool.query(`
                 INSERT INTO award_board_config (guild_id, channel_id, message_id)
@@ -370,7 +432,7 @@ client.on('interactionCreate', async interaction => {
                 DO UPDATE SET channel_id = $2, message_id = $3;
             `, [interaction.guildId, interaction.channelId, boardMsg.id]);
 
-            await interaction.editReply({ content: '✅ High-Detail Embed Spreadsheet Board created and linked to this channel!' });
+            await interaction.editReply({ content: '✅ Interactive Tab-Navigated Award Board created and linked to this channel!' });
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `❌ Failed to create Award Board: ${error.message}` });
@@ -406,7 +468,7 @@ client.on('interactionCreate', async interaction => {
                     { name: 'Award ID', value: `#${awardId}`, inline: true },
                     { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${robloxUsername}\`)`, inline: true },
                     { name: 'Award Name', value: awardName, inline: false },
-                    { name: 'Category', value: category, inline: true },
+                    { name: 'Category Tab', value: category, inline: true },
                     { name: 'Reason', value: reason, inline: false }
                 )
                 .setTimestamp();
@@ -1011,4 +1073,3 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
-
