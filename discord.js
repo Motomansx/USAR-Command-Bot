@@ -215,7 +215,7 @@ client.once('clientReady', async () => {
     }
 });
 
-// Canvas Image Generator for Spreadsheet Grid
+// Canvas Image Generator for Spreadsheet Grid (Fixed Fonts)
 async function generateSpreadsheetImage() {
     const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC LIMIT 15');
     const awards = awardsRes.rows;
@@ -243,7 +243,7 @@ async function generateSpreadsheetImage() {
 
     // Header Text
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px sans-serif';
+    ctx.font = 'bold 18px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE', width / 2, 82);
 
@@ -254,7 +254,7 @@ async function generateSpreadsheetImage() {
     ctx.strokeRect(40, startY, width - 80, 35);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px sans-serif';
+    ctx.font = 'bold 12px "DejaVu Sans", Arial, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('ID', 55, startY + 22);
     ctx.fillText('ROBLOX USERNAME', 110, startY + 22);
@@ -268,7 +268,7 @@ async function generateSpreadsheetImage() {
         ctx.fillRect(40, startY, width - 80, 35);
         ctx.strokeRect(40, startY, width - 80, 35);
         ctx.fillStyle = '#dddddd';
-        ctx.font = 'italic 13px sans-serif';
+        ctx.font = 'italic 12px "DejaVu Sans", Arial, sans-serif';
         ctx.fillText('No awards currently logged in database.', 60, startY + 22);
     } else {
         awards.forEach((a, index) => {
@@ -278,7 +278,7 @@ async function generateSpreadsheetImage() {
             ctx.strokeRect(40, rowY, width - 80, 35);
 
             ctx.fillStyle = '#ffffff';
-            ctx.font = '13px sans-serif';
+            ctx.font = '12px "DejaVu Sans", Arial, sans-serif';
             ctx.fillText(`#${a.id}`, 55, rowY + 22);
             ctx.fillText(a.roblox_username || 'Unknown', 110, rowY + 22);
             ctx.fillText(a.award_name || 'N/A', 350, rowY + 22);
