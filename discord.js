@@ -9,20 +9,11 @@ const pool = new Pool({
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const GROUP_ID = 338694123;
-const CIMT_GROUP_ID = 520955701;
 const OWNER_DISCORD_ID = '1192582006639448185';
 const MAIN_GUILD_ID = '1518101681072508949';
 const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
-
-// Kept for later use, but currently deactivated for command permissions
-const AUTHORIZED_ROLE_IDS = [
-    '1518144720281272451',
-    '1518145962428600353',
-    '1518145925304815787',
-    '1518145499318980638'
-];
 
 // Channel Restriction IDs (Active in Main Server for others)
 const XP_CHANNEL_ID = '1526039744700743821';
@@ -66,10 +57,24 @@ client.once('clientReady', async () => {
                 reason TEXT,
                 type VARCHAR(32)
             );
-            ALTER TABLE discharges ADD COLUMN IF NOT EXISTS notes TEXT;
-            ALTER TABLE discharges DROP COLUMN IF EXISTS evoc_cert;
+
+            CREATE TABLE IF NOT EXISTS awards (
+                id SERIAL PRIMARY KEY,
+                roblox_username VARCHAR(64),
+                discord_id VARCHAR(32),
+                award_name VARCHAR(128),
+                reason TEXT,
+                awarded_by VARCHAR(32),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS award_board_config (
+                guild_id VARCHAR(32) PRIMARY KEY,
+                channel_id VARCHAR(32),
+                message_id VARCHAR(32)
+            );
         `);
-        console.log('[USAR Command] Database tables, columns, and discharge logs verified.');
+        console.log('[USAR Command] Database tables, columns, discharges, and award board verified.');
     } catch (err) {
         console.error('[USAR Command] Database setup error:', err);
     }
@@ -108,9 +113,6 @@ client.once('clientReady', async () => {
         new SlashCommandBuilder()
             .setName('grouproles')
             .setDescription('List all Roblox group roles and their exact rank numbers'),
-        new SlashCommandBuilder()
-            .setName('cimtroles')
-            .setDescription('List all CIMT group roles and their exact rank numbers (Restricted)'),
         new SlashCommandBuilder()
             .setName('discharge')
             .setDescription('Log a member discharge record into the database')
@@ -153,6 +155,20 @@ client.once('clientReady', async () => {
             .setDescription('View all logged member discharge records')
             .addUserOption(option => option.setName('user').setDescription('Filter by specific Discord user').setRequired(false)),
         new SlashCommandBuilder()
+            .setName('giveaward')
+            .setDescription('Award a medal/ribbon to a member and update the live Award Board')
+            .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
+            .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
+            .addStringOption(option => option.setName('award').setDescription('Award Name (e.g. Medal of Honor, Valor Ribbon)').setRequired(true))
+            .addStringOption(option => option.setName('reason').setDescription('Reason for award').setRequired(true)),
+        new SlashCommandBuilder()
+            .setName('revokeaward')
+            .setDescription('Revoke an award record by ID and update the live Award Board')
+            .addIntegerOption(option => option.setName('award_id').setDescription('The Award Record ID to remove').setRequired(true)),
+        new SlashCommandBuilder()
+            .setName('postawardboard')
+            .setDescription('Posts the persistent live updating Award Board embed in this channel'),
+        new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
             .addStringOption(option => 
@@ -171,10 +187,7 @@ client.once('clientReady', async () => {
             .setName('setnickname')
             .setDescription('Changes the bot nickname in this server')
             .addStringOption(option => 
-                option.setName('name').setDescription('New nickname for the bot').setRequired(true)),
-        new SlashCommandBuilder()
-            .setName('meme')
-            .setDescription('get gif perms')
+                option.setName('name').setDescription('New nickname for the bot').setRequired(true))
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
@@ -189,6 +202,43 @@ client.once('clientReady', async () => {
         console.error(error);
     }
 });
+
+// Helper function to dynamically construct and update the Award Board Embed
+async function updateAwardBoard(guild) {
+    try {
+        const configRes = await pool.query('SELECT channel_id, message_id FROM award_board_config WHERE guild_id = $1', [guild.id]);
+        if (configRes.rows.length === 0) return;
+
+        const { channel_id, message_id } = configRes.rows[0];
+        const channel = await guild.channels.fetch(channel_id).catch(() => null);
+        if (!channel) return;
+
+        const message = await channel.messages.fetch(message_id).catch(() => null);
+        if (!message) return;
+
+        const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id DESC LIMIT 25');
+        
+        let description = '🏅 **OFFICIAL MILITARY COMMENDATIONS & AWARDS**\n\n';
+        if (awardsRes.rows.length === 0) {
+            description += 'No awards currently recorded on the board.';
+        } else {
+            for (const award of awardsRes.rows) {
+                description += `🔹 **[ID: #${award.id}]${award.award_name}**\n• **Recipient:** <@${award.discord_id}> (\`${award.roblox_username}\`)\n• **Reason:** ${award.reason}\n• **Awarded By:** <@${award.awarded_by}>\n\n`;
+            }
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🏛️ USAR COMMENDATIONS & AWARD BOARD')
+            .setColor(0xF1C40F)
+            .setDescription(description)
+            .setFooter({ text: 'Last Live Update' })
+            .setTimestamp();
+
+        await message.edit({ embeds: [embed] });
+    } catch (err) {
+        console.error('Failed to update Award Board:', err);
+    }
+}
 
 client.on('interactionCreate', async interaction => {
     if (interaction.isAutocomplete()) {
@@ -218,11 +268,6 @@ client.on('interactionCreate', async interaction => {
     }
 
     const { commandName } = interaction;
-
-    if (commandName === 'meme') {
-        await interaction.reply({ content: `👋 Leaving server...`, flags: MessageFlags.Ephemeral });
-        return await interaction.guild.leave();
-    }
 
     if (commandName === 'setnickname') {
         const newName = interaction.options.getString('name');
@@ -261,48 +306,99 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
-    // Since you are OWNER_DISCORD_ID, all server & channel restrictions below are bypassed automatically for you!
-    if (interaction.user.id !== OWNER_DISCORD_ID) {
-        if (['setrank', 'givexp', 'revokexp', 'background', 'discharge', 'updatedischarge', 'removedischarge', 'viewdischarges'].includes(commandName)) {
-            if (interaction.guildId !== MAIN_GUILD_ID && interaction.guildId !== HQ_GUILD_ID) {
-                return interaction.reply({
-                    content: `❌ This command can only be used in authorized servers.`,
-                    flags: MessageFlags.Ephemeral
-                });
-            }
-        }
-
-        if (interaction.guildId === MAIN_GUILD_ID) {
-            if (commandName === 'setrank' && interaction.channelId !== SETRANK_CHANNEL_ID) {
-                return interaction.reply({ 
-                    content: `❌ This command can only be used in <#${SETRANK_CHANNEL_ID}>.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-
-            if ((commandName === 'givexp' || commandName === 'revokexp' || commandName === 'xp' || commandName === 'xpranks' || commandName === 'grouproles') && interaction.channelId !== XP_CHANNEL_ID) {
-                return interaction.reply({ 
-                    content: `❌ This command can only be used in <#${XP_CHANNEL_ID}>.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-
-            if (commandName === 'background' && interaction.channelId !== XP_CHANNEL_ID && interaction.channelId !== BACKGROUND_CHANNEL_ID) {
-                return interaction.reply({ 
-                    content: `❌ This command can only be used in <#${XP_CHANNEL_ID}> or <#${BACKGROUND_CHANNEL_ID}>.`, 
-                    flags: MessageFlags.Ephemeral 
-                });
-            }
-        }
-    }
-
-    // Helper function to resolve either a username or ID string into a numeric Roblox User ID
     async function resolveRobloxId(input) {
         if (/^\d+$/.test(input)) {
             return parseInt(input, 10);
         } else {
             return await noblox.getIdFromUsername(input);
         }
+    }
+
+    if (commandName === 'postawardboard') {
+        await interaction.deferReply();
+        try {
+            const embed = new EmbedBuilder()
+                .setTitle('🏛️ USAR COMMENDATIONS & AWARD BOARD')
+                .setColor(0xF1C40F)
+                .setDescription('Initializing Award Board...')
+                .setTimestamp();
+
+            const boardMsg = await interaction.channel.send({ embeds: [embed] });
+
+            await pool.query(`
+                INSERT INTO award_board_config (guild_id, channel_id, message_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (guild_id)
+                DO UPDATE SET channel_id = $2, message_id = $3;
+            `, [interaction.guildId, interaction.channelId, boardMsg.id]);
+
+            await updateAwardBoard(interaction.guild);
+            await interaction.editReply({ content: '✅ Award Board created and linked to this channel!' });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to create Award Board: ${error.message}` });
+        }
+        return;
+    }
+
+    if (commandName === 'giveaward') {
+        await interaction.deferReply();
+        const userInput = interaction.options.getString('user');
+        const targetDiscord = interaction.options.getUser('discord');
+        const awardName = interaction.options.getString('award');
+        const reason = interaction.options.getString('reason');
+
+        try {
+            const robloxUserId = await resolveRobloxId(userInput);
+            const robloxUsername = await noblox.getUsernameFromId(robloxUserId);
+
+            const res = await pool.query(`
+                INSERT INTO awards (roblox_username, discord_id, award_name, reason, awarded_by)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id;
+            `, [robloxUsername, targetDiscord.id, awardName, reason, interaction.user.id]);
+
+            const awardId = res.rows[0].id;
+            await updateAwardBoard(interaction.guild);
+
+            const embed = new EmbedBuilder()
+                .setTitle('🎖️ Award Logged & Board Updated')
+                .setColor(0xF1C40F)
+                .addFields(
+                    { name: 'Award ID', value: `#${awardId}`, inline: true },
+                    { name: 'Award Name', value: awardName, inline: true },
+                    { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${robloxUsername}\`)`, inline: false },
+                    { name: 'Reason', value: reason, inline: false }
+                )
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to give award: ${error.message}` });
+        }
+        return;
+    }
+
+    if (commandName === 'revokeaward') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const awardId = interaction.options.getInteger('award_id');
+
+        try {
+            const check = await pool.query('SELECT * FROM awards WHERE id = $1', [awardId]);
+            if (check.rows.length === 0) {
+                return await interaction.editReply({ content: `❌ No award record found with ID **#${awardId}**.` });
+            }
+
+            await pool.query('DELETE FROM awards WHERE id = $1', [awardId]);
+            await updateAwardBoard(interaction.guild);
+
+            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the live board.` });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: `❌ Failed to revoke award: ${error.message}` });
+        }
+        return;
     }
 
     if (commandName === 'auditlogs') {
@@ -314,7 +410,7 @@ client.on('interactionCreate', async interaction => {
             const logs = Array.isArray(response) ? response : (response?.data || response?.items || []);
 
             if (!logs || logs.length === 0) {
-                return await interaction.editReply({ content: `📂 Note: Roblox's group audit log endpoint returned no items or is restricted for this bot account configuration. (Ensure bot has proper roleset permissions).` });
+                return await interaction.editReply({ content: `📂 Note: Roblox's group audit log endpoint returned no items or is restricted for this bot account configuration.` });
             }
 
             let description = `Showing the last **${logs.length}** audit log entries:\n\n`;
@@ -763,30 +859,6 @@ client.on('interactionCreate', async interaction => {
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `Failed to fetch group roles: ${error.message}` });
-        }
-    }
-
-    if (commandName === 'cimtroles') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-            const roles = await noblox.getRoles(CIMT_GROUP_ID);
-            roles.sort((a, b) => a.rank - b.rank);
-
-            let description = 'Here are all the CIMT group roles and their exact rank numbers:\n\n';
-            for (const role of roles) {
-                description += `• **${role.name}** ➔ Rank Value: \`${role.rank}\`\n`;
-            }
-
-            const embed = new EmbedBuilder()
-                .setTitle('📋 CIMT Group Roles & Rank Numbers')
-                .setColor(0x9B59B6)
-                .setDescription(description)
-                .setTimestamp();
-
-            await interaction.editReply({ embeds: [embed] });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({ content: `Failed to fetch CIMT group roles: ${error.message}` });
         }
     }
 
