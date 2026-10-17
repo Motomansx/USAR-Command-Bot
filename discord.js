@@ -62,10 +62,12 @@ client.once('clientReady', async () => {
                 position VARCHAR(64),
                 company VARCHAR(64),
                 time_logged VARCHAR(32),
-                evoc_cert VARCHAR(8),
+                notes TEXT,
                 reason TEXT,
                 type VARCHAR(32)
             );
+            ALTER TABLE discharges ADD COLUMN IF NOT EXISTS notes TEXT;
+            ALTER TABLE discharges DROP COLUMN IF EXISTS evoc_cert;
         `);
         console.log('[USAR Command] Database tables, columns, and discharge logs verified.');
     } catch (err) {
@@ -114,10 +116,10 @@ client.once('clientReady', async () => {
             .setDescription('Log a member discharge record into the database')
             .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
-            .addStringOption(option => option.setName('position').setDescription('Position (e.g. BSOP/SRTA)').setRequired(true))
-            .addStringOption(option => option.setName('company').setDescription('Company (e.g. SRT)').setRequired(true))
-            .addStringOption(option => option.setName('time').setDescription('Time (e.g. N/A or duration)').setRequired(true))
-            .addStringOption(option => option.setName('evoc').setDescription('EVOC Certif (Y/N)').setRequired(true))
+            .addStringOption(option => option.setName('position').setDescription('Position').setRequired(true))
+            .addStringOption(option => option.setName('company').setDescription('Company').setRequired(true))
+            .addStringOption(option => option.setName('time').setDescription('Time').setRequired(true))
+            .addStringOption(option => option.setName('notes').setDescription('Additional notes').setRequired(true))
             .addStringOption(option => option.setName('reason').setDescription('Reason for discharge').setRequired(true))
             .addStringOption(option => 
                 option.setName('type')
@@ -355,7 +357,7 @@ client.on('interactionCreate', async interaction => {
         const position = interaction.options.getString('position');
         const company = interaction.options.getString('company');
         const timeLogged = interaction.options.getString('time');
-        const evocCert = interaction.options.getString('evoc');
+        const notes = interaction.options.getString('notes');
         const reason = interaction.options.getString('reason');
         const type = interaction.options.getString('type');
 
@@ -364,10 +366,10 @@ client.on('interactionCreate', async interaction => {
             const robloxUsername = await noblox.getUsernameFromId(robloxUserId);
 
             const res = await pool.query(`
-                INSERT INTO discharges (roblox_username, discord_id, position, company, time_logged, evoc_cert, reason, type)
+                INSERT INTO discharges (roblox_username, discord_id, position, company, time_logged, notes, reason, type)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id;
-            `, [robloxUsername, targetDiscord.id, position, company, timeLogged, evocCert, reason, type]);
+            `, [robloxUsername, targetDiscord.id, position, company, timeLogged, notes, reason, type]);
 
             const recordId = res.rows[0].id;
 
@@ -380,7 +382,7 @@ client.on('interactionCreate', async interaction => {
                     { name: 'Position', value: position, inline: true },
                     { name: 'Company', value: company, inline: true },
                     { name: 'Time', value: timeLogged, inline: true },
-                    { name: 'EVOC Certif', value: evocCert, inline: true },
+                    { name: 'Notes', value: notes, inline: true },
                     { name: 'Reason', value: reason, inline: false },
                     { name: 'Type', value: type, inline: true }
                 )
@@ -462,7 +464,7 @@ client.on('interactionCreate', async interaction => {
 
             let description = `Found **${discharges.length}** discharge record(s):\n\n`;
             for (const d of discharges) {
-                description += `> **[ID: #${d.id}]**\n> Name: ${d.roblox_username} | Discord: <@${d.discord_id}>\n> Position: ${d.position} (${d.company}) | Type: **${d.type}**\n> Reason: ${d.reason}\n\n`;
+                description += `> **[ID: #${d.id}]**\n> Name: ${d.roblox_username} | Discord: <@${d.discord_id}>\n> Position: ${d.position} (${d.company}) | Type: **${d.type}**\n> Notes: ${d.notes || 'N/A'}\n> Reason: ${d.reason}\n\n`;
             }
 
             const embed = new EmbedBuilder()
@@ -847,7 +849,7 @@ client.on('interactionCreate', async interaction => {
             if (dischargeQuery.rows.length > 0) {
                 let recordsText = '';
                 for (const d of dischargeQuery.rows) {
-                    recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> EVOC Certif: ${d.evoc_cert}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
+                    recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> Notes: ${d.notes || 'N/A'}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
                 }
                 dischargeSection = `📋 **DISCHARGE RECORDS FOUND:**${recordsText}`;
             }
