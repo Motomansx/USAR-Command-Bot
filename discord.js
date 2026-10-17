@@ -39,7 +39,6 @@ client.once('clientReady', async () => {
                 xp INT DEFAULT 0
             );
             ALTER TABLE user_xp ADD COLUMN IF NOT EXISTS roblox_id BIGINT;
-            ALTER TABLE user_xp DROP COLUMN IF EXISTS robux_id;
 
             CREATE TABLE IF NOT EXISTS xp_ranks (
                 min_xp INT PRIMARY KEY,
@@ -63,6 +62,7 @@ client.once('clientReady', async () => {
                 roblox_username VARCHAR(64),
                 discord_id VARCHAR(32),
                 award_name VARCHAR(128),
+                category VARCHAR(64),
                 reason TEXT,
                 awarded_by VARCHAR(32),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -74,7 +74,7 @@ client.once('clientReady', async () => {
                 message_id VARCHAR(32)
             );
         `);
-        console.log('[USAR Command] Database tables, columns, discharges, and award board verified.');
+        console.log('[USAR Command] Database setup verified.');
     } catch (err) {
         console.error('[USAR Command] Database setup error:', err);
     }
@@ -156,18 +156,28 @@ client.once('clientReady', async () => {
             .addUserOption(option => option.setName('user').setDescription('Filter by specific Discord user').setRequired(false)),
         new SlashCommandBuilder()
             .setName('giveaward')
-            .setDescription('Award a medal/ribbon to a member and update the live Award Board')
+            .setDescription('Award a medal/ribbon/badge to a member')
             .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
-            .addStringOption(option => option.setName('award').setDescription('Award Name (e.g. Medal of Honor, Valor Ribbon)').setRequired(true))
+            .addStringOption(option => option.setName('award').setDescription('Award Name (e.g. Combat Action Badge)').setRequired(true))
+            .addStringOption(option => 
+                option.setName('category')
+                    .setDescription('Award Category Tab')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'Badges Database', value: 'Badges Database' },
+                        { name: 'Ribbons Database', value: 'Ribbons Database' },
+                        { name: 'Foreign Awards Database', value: 'Foreign Awards Database' },
+                        { name: 'Unit Awards', value: 'Unit Awards' }
+                    ))
             .addStringOption(option => option.setName('reason').setDescription('Reason for award').setRequired(true)),
         new SlashCommandBuilder()
             .setName('revokeaward')
-            .setDescription('Revoke an award record by ID and update the live Award Board')
+            .setDescription('Revoke an award record by ID and update the live spreadsheet board')
             .addIntegerOption(option => option.setName('award_id').setDescription('The Award Record ID to remove').setRequired(true)),
         new SlashCommandBuilder()
             .setName('postawardboard')
-            .setDescription('Posts the persistent live updating Award Board embed in this channel'),
+            .setDescription('Posts the persistent live spreadsheet-style Award Board in this channel'),
         new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
@@ -203,7 +213,7 @@ client.once('clientReady', async () => {
     }
 });
 
-// Helper function to dynamically construct and update the Award Board Embed
+// Helper function to render a spreadsheet table view inside Discord
 async function updateAwardBoard(guild) {
     try {
         const configRes = await pool.query('SELECT channel_id, message_id FROM award_board_config WHERE guild_id = $1', [guild.id]);
@@ -216,27 +226,37 @@ async function updateAwardBoard(guild) {
         const message = await channel.messages.fetch(message_id).catch(() => null);
         if (!message) return;
 
-        const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id DESC LIMIT 25');
+        const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC LIMIT 20');
         
-        let description = '🏅 **OFFICIAL MILITARY COMMENDATIONS & AWARDS**\n\n';
+        let tableRows = '';
         if (awardsRes.rows.length === 0) {
-            description += 'No awards currently recorded on the board.';
+            tableRows = 'No records found in database.';
         } else {
-            for (const award of awardsRes.rows) {
-                description += `🔹 **[ID: #${award.id}]${award.award_name}**\n• **Recipient:** <@${award.discord_id}> (\`${award.roblox_username}\`)\n• **Reason:** ${award.reason}\n• **Awarded By:** <@${award.awarded_by}>\n\n`;
+            // Spreadsheet Header Row
+            tableRows += `${'ID'.padEnd(4)} \vert{}${'ROBLOX USERNAME'.padEnd(18)} | ${'AWARD / DECORATION'.padEnd(26)} \vert{}${'CATEGORY'}\n`;
+            tableRows += `${'-'.repeat(4)}-+-${'-'.repeat(18)}-+-${'-'.repeat(26)}-+-${'-'.repeat(20)}\n`;
+
+            for (const a of awardsRes.rows) {
+                const idStr = `#${a.id}`.padEnd(4);
+                const userStr = (a.roblox_username || 'Unknown').substring(0, 18).padEnd(18);
+                const awardStr = (a.award_name || 'N/A').substring(0, 26).padEnd(26);
+                const catStr = (a.category || 'General').substring(0, 20);
+                tableRows += `${idStr} \vert{}${userStr} | ${awardStr} \vert{}${catStr}\n`;
             }
         }
 
+        const spreadsheetView = `\`\`\`sql\n[ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE GRID]\n\n${tableRows}\n\`\`\``;
+
         const embed = new EmbedBuilder()
-            .setTitle('🏛️ USAR COMMENDATIONS & AWARD BOARD')
-            .setColor(0xF1C40F)
-            .setDescription(description)
-            .setFooter({ text: 'Last Live Update' })
+            .setTitle('📊 USAR MASTER DECORATIONS SPREADSHEET')
+            .setColor(0x1E4620)
+            .setDescription(spreadsheetView)
+            .setFooter({ text: 'Live Synchronized Database • Auto-Updates on /giveaward' })
             .setTimestamp();
 
         await message.edit({ embeds: [embed] });
     } catch (err) {
-        console.error('Failed to update Award Board:', err);
+        console.error('Failed to update Spreadsheet Award Board:', err);
     }
 }
 
@@ -318,9 +338,9 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply();
         try {
             const embed = new EmbedBuilder()
-                .setTitle('🏛️ USAR COMMENDATIONS & AWARD BOARD')
-                .setColor(0xF1C40F)
-                .setDescription('Initializing Award Board...')
+                .setTitle('📊 USAR MASTER DECORATIONS SPREADSHEET')
+                .setColor(0x1E4620)
+                .setDescription('```sql\n[Initializing Spreadsheet Grid...]\n```')
                 .setTimestamp();
 
             const boardMsg = await interaction.channel.send({ embeds: [embed] });
@@ -333,10 +353,10 @@ client.on('interactionCreate', async interaction => {
             `, [interaction.guildId, interaction.channelId, boardMsg.id]);
 
             await updateAwardBoard(interaction.guild);
-            await interaction.editReply({ content: '✅ Award Board created and linked to this channel!' });
+            await interaction.editReply({ content: '✅ Spreadsheet Grid Award Board created and linked to this channel!' });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `❌ Failed to create Award Board: ${error.message}` });
+            await interaction.editReply({ content: `❌ Failed to create Spreadsheet Board: ${error.message}` });
         }
         return;
     }
@@ -346,6 +366,7 @@ client.on('interactionCreate', async interaction => {
         const userInput = interaction.options.getString('user');
         const targetDiscord = interaction.options.getUser('discord');
         const awardName = interaction.options.getString('award');
+        const category = interaction.options.getString('category');
         const reason = interaction.options.getString('reason');
 
         try {
@@ -353,21 +374,22 @@ client.on('interactionCreate', async interaction => {
             const robloxUsername = await noblox.getUsernameFromId(robloxUserId);
 
             const res = await pool.query(`
-                INSERT INTO awards (roblox_username, discord_id, award_name, reason, awarded_by)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO awards (roblox_username, discord_id, award_name, category, reason, awarded_by)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id;
-            `, [robloxUsername, targetDiscord.id, awardName, reason, interaction.user.id]);
+            `, [robloxUsername, targetDiscord.id, awardName, category, reason, interaction.user.id]);
 
             const awardId = res.rows[0].id;
             await updateAwardBoard(interaction.guild);
 
             const embed = new EmbedBuilder()
-                .setTitle('🎖️ Award Logged & Board Updated')
-                .setColor(0xF1C40F)
+                .setTitle('🎖️ Award Logged & Spreadsheet Updated')
+                .setColor(0x1E4620)
                 .addFields(
                     { name: 'Award ID', value: `#${awardId}`, inline: true },
-                    { name: 'Award Name', value: awardName, inline: true },
-                    { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${robloxUsername}\`)`, inline: false },
+                    { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${robloxUsername}\`)`, inline: true },
+                    { name: 'Award Name', value: awardName, inline: false },
+                    { name: 'Category', value: category, inline: true },
                     { name: 'Reason', value: reason, inline: false }
                 )
                 .setTimestamp();
@@ -393,7 +415,7 @@ client.on('interactionCreate', async interaction => {
             await pool.query('DELETE FROM awards WHERE id = $1', [awardId]);
             await updateAwardBoard(interaction.guild);
 
-            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the live board.` });
+            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the spreadsheet grid.` });
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `❌ Failed to revoke award: ${error.message}` });
@@ -889,7 +911,7 @@ client.on('interactionCreate', async interaction => {
                 const headers = cookie ? { 'Cookie': `.ROBLOSECURITY=${cookie}` } : {};
 
                 do {
-                    const url = `https://badges.roblox.com/v1/users/${robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
+                    const url = `[https://badges.roblox.com/v1/users/$](https://badges.roblox.com/v1/users/$){robloxUserId}/badges?limit=100&sortOrder=Asc${cursor ? `&cursor=${cursor}` : ''}`;
                     const response = await fetch(url, { headers });
                     const data = await response.json();
                     
