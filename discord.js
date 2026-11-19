@@ -1,16 +1,8 @@
-const { 
-    Client, 
-    GatewayIntentBits, 
-    REST, 
-    Routes, 
-    SlashCommandBuilder, 
-    MessageFlags, 
-    EmbedBuilder, 
-    ActionRowBuilder, 
-    StringSelectMenuBuilder 
-} = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 const { Pool } = require('pg');
+const { createCanvas } = require('canvas');
+const { gameCommand, handleGameCommand } = require('./gameBridge');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -25,32 +17,10 @@ const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
 
-// Defined Award Categories & Badges Catalog
-const AWARD_CATALOG = {
-    'Badges': [
-        'Driver and Mechanic Badge',
-        'Basic Parachutist Badge',
-        'Air Assault Badge'
-    ],
-    'Ribbons': [
-        'Army Achievement Medal (AAM)',
-        'Army Good Conduct Medal',
-        'National Defense Service Medal (NDSM)'
-    ],
-    'Foreign Awards': [
-        'UK Operational Service Medal',
-        'NATO Medal',
-        'German Armed Forces Badge of Military Proficiency'
-    ],
-    'Cords': [
-        'Infantry Blue Cord'
-    ],
-    'Tabs': [
-        'AIRBORNE Tab',
-        'RANGER Tab',
-        'SAPPER Tab'
-    ]
-};
+// Channel Restriction IDs
+const XP_CHANNEL_ID = '1526039744700743821';
+const SETRANK_CHANNEL_ID = '1526041058553630730';
+const BACKGROUND_CHANNEL_ID = '1548441081786663072';
 
 client.once('clientReady', async () => {
     console.log(`[USAR Command] Logged in as ${client.user.tag}`);
@@ -58,7 +28,7 @@ client.once('clientReady', async () => {
     try {
         await noblox.setCookie(process.env.ROBLOSECURITY);
         const currentUser = await noblox.getCurrentUser();
-        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} \vert{} ID ->${currentUser.UserID}`);
+        console.log(`[USAR Command] 🟢 ACTIVE ROBLOX BOT ACCOUNT: Username -> ${currentUser.UserName} | ID -> ${currentUser.UserID}`);
     } catch (err) {
         console.error('[USAR Command] Failed to log into Roblox with cookie:', err);
     }
@@ -192,30 +162,25 @@ client.once('clientReady', async () => {
             .setDescription('Award a medal/ribbon/badge to a member')
             .addStringOption(option => option.setName('user').setDescription('Roblox Username or User ID').setRequired(true))
             .addUserOption(option => option.setName('discord').setDescription('Discord user').setRequired(true))
+            .addStringOption(option => option.setName('award').setDescription('Award Name (e.g. Combat Action Badge)').setRequired(true))
             .addStringOption(option => 
                 option.setName('category')
-                    .setDescription('Select Award Category Tab')
+                    .setDescription('Award Category Tab')
                     .setRequired(true)
                     .addChoices(
-                        { name: 'Badges', value: 'Badges' },
-                        { name: 'Ribbons', value: 'Ribbons' },
-                        { name: 'Foreign Awards', value: 'Foreign Awards' },
-                        { name: 'Cords', value: 'Cords' },
-                        { name: 'Tabs', value: 'Tabs' }
+                        { name: 'Badges Database', value: 'Badges Database' },
+                        { name: 'Ribbons Database', value: 'Ribbons Database' },
+                        { name: 'Foreign Awards Database', value: 'Foreign Awards Database' },
+                        { name: 'Unit Awards', value: 'Unit Awards' }
                     ))
-            .addStringOption(option => 
-                option.setName('award')
-                    .setDescription('Select award or type custom name')
-                    .setRequired(true)
-                    .setAutocomplete(true))
             .addStringOption(option => option.setName('reason').setDescription('Reason for award').setRequired(true)),
         new SlashCommandBuilder()
             .setName('revokeaward')
-            .setDescription('Revoke an award record by ID and update the board')
+            .setDescription('Revoke an award record by ID and update the visual board')
             .addIntegerOption(option => option.setName('award_id').setDescription('The Award Record ID to remove').setRequired(true)),
         new SlashCommandBuilder()
             .setName('postawardboard')
-            .setDescription('Posts the persistent live tab-navigated Award Board spreadsheet in this channel'),
+            .setDescription('Posts the persistent live image-rendered Award Board in this channel'),
         new SlashCommandBuilder()
             .setName('background')
             .setDescription('Run a full background screening check on a member')
@@ -235,7 +200,8 @@ client.once('clientReady', async () => {
             .setName('setnickname')
             .setDescription('Changes the bot nickname in this server')
             .addStringOption(option => 
-                option.setName('name').setDescription('New nickname for the bot').setRequired(true))
+                option.setName('name').setDescription('New nickname for the bot').setRequired(true)),
+        gameCommand
     ].map(command => command.toJSON());
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
@@ -251,75 +217,78 @@ client.once('clientReady', async () => {
     }
 });
 
-// Helper function to build the Tall Vertical Spreadsheet Board Embed
-async function buildAwardBoardPage(activeTab = 'Badges') {
-    const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC');
-    const allAwards = awardsRes.rows;
+// Canvas Image Generator for Spreadsheet Grid
+async function generateSpreadsheetImage() {
+    const awardsRes = await pool.query('SELECT * FROM awards ORDER BY id ASC LIMIT 15');
+    const awards = awardsRes.rows;
 
-    const embed = new EmbedBuilder()
-        .setTitle('🏛️ U.S. ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE')
-        .setColor(0x1E4620)
-        .setFooter({ text: 'Official QMC Database • Select a tab below to switch sheet pages' })
-        .setTimestamp();
+    const width = 900;
+    const height = 180 + Math.max(awards.length, 1) * 35;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
 
-    let tabHeader = `\`\`\`ini\n[ SHEET PAGE: ${activeTab.toUpperCase()} ]\n\`\`\`\n`;
+    // Background (Army Green Theme)
+    ctx.fillStyle = '#1e382b';
+    ctx.fillRect(0, 0, width, height);
 
-    if (activeTab === 'Master Roster') {
-        let gridText = `\`\`\`yaml\nID  | ROBLOX USERNAME    | AWARD / DECORATION\n----+--------------------+-----------------------------------\n`;
-        if (allAwards.length === 0) {
-            gridText += `No records logged in database.\n`;
-        } else {
-            for (const a of allAwards.slice(-25)) {
-                const idStr = `#${a.id}`.padEnd(3);
-                const userStr = (a.roblox_username || 'Unknown').substring(0, 18).padEnd(18);
-                const awardStr = (a.award_name || 'N/A').substring(0, 32);
-                gridText += `${idStr} | ${userStr} | ${awardStr}\n`;
-            }
-        }
-        gridText += `\`\`\``;
-        embed.setDescription(`${tabHeader}${gridText}`);
+    // Border Frame
+    ctx.strokeStyle = '#8c8c8c';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(15, 15, width - 30, height - 30);
+
+    // Header Box
+    ctx.fillStyle = '#14261c';
+    ctx.fillRect(40, 40, width - 80, 70);
+    ctx.strokeStyle = '#c0c0c0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 40, width - 80, 70);
+
+    // Header Text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('ARMY QUARTERMASTER CORPS | DECORATIONS DATABASE', width / 2, 82);
+
+    // Table Columns Header
+    let startY = 135;
+    ctx.fillStyle = '#2d4d3c';
+    ctx.fillRect(40, startY, width - 80, 35);
+    ctx.strokeRect(40, startY, width - 80, 35);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('ID', 55, startY + 22);
+    ctx.fillText('ROBLOX USERNAME', 110, startY + 22);
+    ctx.fillText('AWARD / DECORATION', 350, startY + 22);
+    ctx.fillText('CATEGORY', 640, startY + 22);
+
+    // Table Rows
+    startY += 35;
+    if (awards.length === 0) {
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(40, startY, width - 80, 35);
+        ctx.strokeRect(40, startY, width - 80, 35);
+        ctx.fillStyle = '#dddddd';
+        ctx.font = 'italic 13px sans-serif';
+        ctx.fillText('No awards currently logged in database.', 60, startY + 22);
     } else {
-        const catAwards = allAwards.filter(a => a.category === activeTab);
-        const catBadges = AWARD_CATALOG[activeTab] || [];
+        awards.forEach((a, index) => {
+            const rowY = startY + (index * 35);
+            ctx.fillStyle = index % 2 === 0 ? '#333b37' : '#2b332f';
+            ctx.fillRect(40, rowY, width - 80, 35);
+            ctx.strokeRect(40, rowY, width - 80, 35);
 
-        let specList = `**Authorized ${activeTab} Catalog:**\n`;
-        for (const b of catBadges) {
-            specList += `▸ \`${b}\`\n`;
-        }
-
-        let rosterSection = `\n**Vertical Sheet Ledger (${catAwards.length} Total Issued):**\n`;
-
-        if (catAwards.length === 0) {
-            rosterSection += `\`\`\`ini\n[ No personnel currently hold awards under this category ]\n\`\`\``;
-        } else {
-            for (const a of catAwards) {
-                rosterSection += `` +
-                    `┌─── **[RECORD ID: #${a.id}]**\n` +
-                    `│ **Award:** \`${a.award_name}\`\n` +
-                    `│ **Recipient:** <@${a.discord_id}> (\`${a.roblox_username}\`)\n` +
-                    `└ **Reason:** *${a.reason}*\n\n`;
-            }
-        }
-
-        embed.setDescription(`${tabHeader}${specList}${rosterSection}`);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '13px sans-serif';
+            ctx.fillText(`#${a.id}`, 55, rowY + 22);
+            ctx.fillText(a.roblox_username || 'Unknown', 110, rowY + 22);
+            ctx.fillText(a.award_name || 'N/A', 350, rowY + 22);
+            ctx.fillText(a.category || 'General', 640, rowY + 22);
+        });
     }
 
-    // Interactive Select Dropdown for Page Tabs
-    const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId('award_board_tab_select')
-        .setPlaceholder(`📄 Switch Sheet Page (Current: ${activeTab})`)
-        .addOptions([
-            { label: 'Badges Database', value: 'Badges', description: 'Driver, Mechanic, Parachutist, Air Assault Badges', emoji: '🏷️' },
-            { label: 'Ribbons Database', value: 'Ribbons', description: 'AAM, Good Conduct, NDSM Medals & Ribbons', emoji: '🎖️' },
-            { label: 'Foreign Awards Database', value: 'Foreign Awards', description: 'UK OSM, NATO Medal, German Armed Forces Badge', emoji: '🌐' },
-            { label: 'Cords Database', value: 'Cords', description: 'Infantry Blue Cord and Authorized Cords', emoji: '🎗️' },
-            { label: 'Tabs Database', value: 'Tabs', description: 'AIRBORNE, RANGER, and SAPPER Tabs', emoji: '🔖' },
-            { label: 'Master Log Roster', value: 'Master Roster', description: 'View full vertical ledger of all awards combined', emoji: '📋' }
-        ]);
-
-    const rowSelect = new ActionRowBuilder().addComponents(selectMenu);
-
-    return { embed, components: [rowSelect] };
+    return canvas.toBuffer();
 }
 
 async function updateAwardBoard(guild) {
@@ -334,27 +303,23 @@ async function updateAwardBoard(guild) {
         const message = await channel.messages.fetch(message_id).catch(() => null);
         if (!message) return;
 
-        const { embed, components } = await buildAwardBoardPage('Badges');
-        await message.edit({ embeds: [embed], components });
+        const imageBuffer = await generateSpreadsheetImage();
+        const attachment = new AttachmentBuilder(imageBuffer, { name: 'decorations_database.png' });
+
+        const embed = new EmbedBuilder()
+            .setTitle('🏛️ USAR MASTER DECORATIONS SPREADSHEET BOARD')
+            .setColor(0x1E4620)
+            .setImage('attachment://decorations_database.png')
+            .setFooter({ text: 'Live Synchronized Database • Auto-Updates on /giveaward' })
+            .setTimestamp();
+
+        await message.edit({ embeds: [embed], files: [attachment] });
     } catch (err) {
-        console.error('Failed to update Award Board:', err);
+        console.error('Failed to update Image Spreadsheet Board:', err);
     }
 }
 
 client.on('interactionCreate', async interaction => {
-    // Handle Interactive Tab Select Menu
-    if (interaction.isStringSelectMenu() && interaction.customId === 'award_board_tab_select') {
-        const selectedTab = interaction.values[0];
-        try {
-            const { embed, components } = await buildAwardBoardPage(selectedTab);
-            await interaction.update({ embeds: [embed], components });
-        } catch (err) {
-            console.error('Failed to switch board tab:', err);
-        }
-        return;
-    }
-
-    // Handle Autocomplete for setrank and giveaward
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'setrank') {
             const focusedValue = interaction.options.getFocused().toLowerCase();
@@ -371,27 +336,6 @@ client.on('interactionCreate', async interaction => {
                 console.error('Failed to fetch autocomplete roles:', err);
             }
         }
-
-        if (interaction.commandName === 'giveaward') {
-            const focusedValue = interaction.options.getFocused().toLowerCase();
-            const selectedCategory = interaction.options.getString('category');
-
-            let poolOptions = [];
-            if (selectedCategory && AWARD_CATALOG[selectedCategory]) {
-                poolOptions = AWARD_CATALOG[selectedCategory];
-            } else {
-                // Flatten all catalog options if no category selected yet
-                poolOptions = Object.values(AWARD_CATALOG).flat();
-            }
-
-            const filtered = poolOptions
-                .filter(a => a.toLowerCase().includes(focusedValue))
-                .slice(0, 25);
-
-            await interaction.respond(
-                filtered.map(a => ({ name: a, value: a }))
-            );
-        }
         return;
     }
 
@@ -402,6 +346,13 @@ client.on('interactionCreate', async interaction => {
     }
 
     const { commandName } = interaction;
+
+    if (commandName === 'game') {
+        const logChannel = interaction.guildId === MAIN_GUILD_ID
+            ? await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null)
+            : null;
+        return handleGameCommand(interaction, { logChannel });
+    }
 
     if (commandName === 'setnickname') {
         const newName = interaction.options.getString('name');
@@ -451,8 +402,16 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'postawardboard') {
         await interaction.deferReply();
         try {
-            const { embed, components } = await buildAwardBoardPage('Badges');
-            const boardMsg = await interaction.channel.send({ embeds: [embed], components });
+            const imageBuffer = await generateSpreadsheetImage();
+            const attachment = new AttachmentBuilder(imageBuffer, { name: 'decorations_database.png' });
+
+            const embed = new EmbedBuilder()
+                .setTitle('🏛️ USAR MASTER DECORATIONS SPREADSHEET BOARD')
+                .setColor(0x1E4620)
+                .setImage('attachment://decorations_database.png')
+                .setTimestamp();
+
+            const boardMsg = await interaction.channel.send({ embeds: [embed], files: [attachment] });
 
             await pool.query(`
                 INSERT INTO award_board_config (guild_id, channel_id, message_id)
@@ -461,10 +420,10 @@ client.on('interactionCreate', async interaction => {
                 DO UPDATE SET channel_id = $2, message_id = $3;
             `, [interaction.guildId, interaction.channelId, boardMsg.id]);
 
-            await interaction.editReply({ content: '✅ Vertical Tab-Navigated Award Board created and linked to this channel!' });
+            await interaction.editReply({ content: '✅ Visual Spreadsheet Image Board created and linked to this channel!' });
         } catch (error) {
             console.error(error);
-            await interaction.editReply({ content: `❌ Failed to create Award Board: ${error.message}` });
+            await interaction.editReply({ content: `❌ Failed to create Image Board: ${error.message}` });
         }
         return;
     }
@@ -473,8 +432,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply();
         const userInput = interaction.options.getString('user');
         const targetDiscord = interaction.options.getUser('discord');
-        const category = interaction.options.getString('category');
         const awardName = interaction.options.getString('award');
+        const category = interaction.options.getString('category');
         const reason = interaction.options.getString('reason');
 
         try {
@@ -497,7 +456,7 @@ client.on('interactionCreate', async interaction => {
                     { name: 'Award ID', value: `#${awardId}`, inline: true },
                     { name: 'Recipient', value: `<@${targetDiscord.id}> (\`${robloxUsername}\`)`, inline: true },
                     { name: 'Award Name', value: awardName, inline: false },
-                    { name: 'Category Tab', value: category, inline: true },
+                    { name: 'Category', value: category, inline: true },
                     { name: 'Reason', value: reason, inline: false }
                 )
                 .setTimestamp();
@@ -523,7 +482,7 @@ client.on('interactionCreate', async interaction => {
             await pool.query('DELETE FROM awards WHERE id = $1', [awardId]);
             await updateAwardBoard(interaction.guild);
 
-            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the board embed.` });
+            await interaction.editReply({ content: `✅ Successfully removed award **#${awardId}** and updated the visual board image.` });
         } catch (error) {
             console.error(error);
             await interaction.editReply({ content: `❌ Failed to revoke award: ${error.message}` });
@@ -1051,7 +1010,7 @@ client.on('interactionCreate', async interaction => {
             if (dischargeQuery.rows.length > 0) {
                 let recordsText = '';
                 for (const d of dischargeQuery.rows) {
-                    recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> TIme: ${d.time_logged}\n> Notes: ${d.notes || 'N/A'}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
+                    recordsText += `\n> **[Record ID: #${d.id}]**\n> Name: ${d.roblox_username}\n> Discord ID: ${d.discord_id}\n> Position: ${d.position}\n> Company: ${d.company}\n> Time: ${d.time_logged}\n> Notes: ${d.notes || 'N/A'}\n> Reason: ${d.reason}\n> Type: ${d.type}\n`;
                 }
                 dischargeSection = `📋 **DISCHARGE RECORDS FOUND:**${recordsText}`;
             }
