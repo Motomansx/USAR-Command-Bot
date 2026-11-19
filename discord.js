@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFla
 const noblox = require('noblox.js');
 const { Pool } = require('pg');
 const { createCanvas } = require('canvas');
-const { gameCommand, handleGameCommand } = require('./gameBridge');
+const crypto = require('crypto');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -16,6 +16,143 @@ const MAIN_GUILD_ID = '1518101681072508949';
 const HQ_GUILD_ID = '1543638529735786687';
 const LOG_CHANNEL_ID = '1548155269001904229';
 const XP_LOG_CHANNEL_ID = '1548166411266822144';
+
+// ───────── Game bridge (Discord → Roblox via Open Cloud MessagingService) ─────────
+const UNIVERSE_ID = process.env.ROBLOX_UNIVERSE_ID || '10771131857';
+const API_KEY = process.env.ROBLOX_OPEN_CLOUD_KEY;
+const TOPIC = 'DiscordBridge'; // must match the topic in DiscordBridgeService
+
+// Same format DataService.Ban parses: 7D, 12H, 1W:2D ... (M = 28-day month, there is no minutes unit)
+const DURATION_RE = /^\d+[WMDHSwmdhs]?(:\d+[WMDHSwmdhs]?)*$/;
+
+const userOpt = o => o.setName('user').setDescription('Roblox username or User ID').setRequired(true);
+const reasonOpt = (required = true) => o =>
+    o.setName('reason').setDescription('Reason').setRequired(required).setMaxLength(200);
+
+const gameCommand = new SlashCommandBuilder()
+    .setName('game')
+    .setDescription('Issue moderation actions inside the Roblox game')
+    .addSubcommand(s => s.setName('ban').setDescription('Ban a player from the game')
+        .addStringOption(userOpt)
+        .addStringOption(reasonOpt())
+        .addStringOption(o => o.setName('duration')
+            .setDescription('e.g. 7D, 12H, 1W:2D (M = 28-day month). Leave blank for permanent')))
+    .addSubcommand(s => s.setName('unban').setDescription('Lift a player\'s in-game ban')
+        .addStringOption(userOpt))
+    .addSubcommand(s => s.setName('blacklist').setDescription('Permanently blacklist a player from the game')
+        .addStringOption(userOpt)
+        .addStringOption(reasonOpt()))
+    .addSubcommand(s => s.setName('unblacklist').setDescription('Remove a player from the game blacklist')
+        .addStringOption(userOpt))
+    .addSubcommand(s => s.setName('warrant').setDescription('Issue an arrest warrant on a player')
+        .addStringOption(userOpt)
+        .addStringOption(o => o.setName('reason').setDescription('Warrant reason (max 60 chars)')
+            .setRequired(true).setMaxLength(60)))
+    .addSubcommand(s => s.setName('clearwarrant').setDescription('Clear a player\'s warrant')
+        .addStringOption(userOpt))
+    .addSubcommand(s => s.setName('kick').setDescription('Kick a player from whatever server they\'re in')
+        .addStringOption(userOpt)
+        .addStringOption(reasonOpt()))
+    .addSubcommand(s => s.setName('restart').setDescription('Restart game servers (players get a countdown, then rejoin)')
+        .addIntegerOption(o => o.setName('delay').setDescription('Seconds of warning (0-300, default 30)')
+            .setMinValue(0).setMaxValue(300))
+        .addStringOption(o => o.setName('server').setDescription('Specific server JobId (blank = ALL servers)'))
+        .addStringOption(reasonOpt(false)));
+
+const STYLE = {
+    ban:          { title: '🔨 Game Ban Issued',        color: 0xE74C3C },
+    unban:        { title: '✅ Game Ban Lifted',         color: 0x2ECC71 },
+    blacklist:    { title: '⛔ Game Blacklist Issued',   color: 0x992D22 },
+    unblacklist:  { title: '✅ Game Blacklist Removed',  color: 0x2ECC71 },
+    warrant:      { title: '🚨 Warrant Issued',          color: 0xE67E22 },
+    clearwarrant: { title: '📄 Warrant Cleared',         color: 0x3498DB },
+    kick:         { title: '👢 Player Kicked',           color: 0xF1C40F },
+    restart:      { title: '🔄 Server Restart Triggered', color: 0x9B59B6 },
+};
+
+async function publish(payload) {
+    const message = JSON.stringify(payload);
+    if (Buffer.byteLength(message) > 950) throw new Error('Command too large for MessagingService (1 KB limit).');
+
+    const res = await fetch(
+        `https://apis.roblox.com/messaging-service/v1/universes/${UNIVERSE_ID}/topics/${TOPIC}`,
+        {
+            method: 'POST',
+            headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+        }
+    );
+    if (!res.ok) throw new Error(`Roblox API ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+async function handleGameCommand(interaction, { logChannel } = {}) {
+    await interaction.deferReply();
+    const action = interaction.options.getSubcommand();
+
+    try {
+        if (!API_KEY) throw new Error('ROBLOX_OPEN_CLOUD_KEY is not set.');
+
+        const payload = {
+            id: crypto.randomUUID(),
+            ts: Math.floor(Date.now() / 1000),
+            action,
+            by: interaction.user.username,
+        };
+        const reason = interaction.options.getString('reason');
+        if (reason) payload.reason = reason;
+
+        const style = STYLE[action];
+        const embed = new EmbedBuilder()
+            .setTitle(style.title)
+            .setColor(style.color)
+            .addFields({ name: 'Issued By', value: `<@${interaction.user.id}>`, inline: true })
+            .setTimestamp();
+
+        if (action === 'restart') {
+            payload.delay = interaction.options.getInteger('delay') ?? 30;
+            const jobId = interaction.options.getString('server');
+            if (jobId) payload.jobId = jobId.trim();
+            embed.addFields(
+                { name: 'Scope', value: jobId ? `Server \`${jobId.trim()}\`` : 'All servers', inline: true },
+                { name: 'Warning', value: `${payload.delay}s`, inline: true }
+            );
+        } else {
+            const input = interaction.options.getString('user').trim();
+            const userId = /^\d+$/.test(input) ? parseInt(input, 10) : await noblox.getIdFromUsername(input);
+            if (!userId) throw new Error(`Couldn't find a Roblox user for "${input}".`);
+            const username = await noblox.getUsernameFromId(userId);
+            payload.userId = userId;
+
+            embed.addFields({
+                name: 'Player',
+                value: `[${username}](https://www.roblox.com/users/${userId}/profile) (\`${userId}\`)`,
+                inline: true,
+            });
+
+            if (action === 'ban') {
+                const duration = interaction.options.getString('duration');
+                if (duration) {
+                    if (!DURATION_RE.test(duration) || duration.length > 24) {
+                        throw new Error('Bad duration. Use units W, D, H, S (or M = 28-day month), e.g. `7D`, `12H`, `1W:2D`.');
+                    }
+                    payload.duration = duration;
+                }
+                embed.addFields({ name: 'Duration', value: duration ? duration.toUpperCase() : 'Permanent', inline: true });
+            }
+        }
+
+        if (reason) embed.addFields({ name: 'Reason', value: reason, inline: false });
+        embed.setFooter({ text: 'Sent to live servers — executes within a few seconds' });
+
+        await publish(payload);
+
+        await interaction.editReply({ embeds: [embed] });
+        if (logChannel) await logChannel.send({ embeds: [embed] }).catch(() => {});
+    } catch (error) {
+        console.error('[Game Bridge]', error);
+        await interaction.editReply({ content: `❌ Failed to send to game: ${error.message}` });
+    }
+}
 
 // Channel Restriction IDs
 const XP_CHANNEL_ID = '1526039744700743821';
