@@ -56,7 +56,7 @@ const gameCommand = new SlashCommandBuilder()
     .addSubcommand(s => s.setName('restart').setDescription('Restart game servers (players get a countdown, then rejoin)')
         .addIntegerOption(o => o.setName('delay').setDescription('Seconds of warning (0-300, default 30)')
             .setMinValue(0).setMaxValue(300))
-        .addStringOption(o => o.setName('server').setDescription('Specific server JobId (blank = ALL servers)'))
+        .addStringOption(o => o.setName('server').setDescription('Specific server JobId (leave blank for ALL servers)'))
         .addStringOption(reasonOpt(false)));
 
 const STYLE = {
@@ -110,10 +110,11 @@ async function handleGameCommand(interaction, { logChannel } = {}) {
 
         if (action === 'restart') {
             payload.delay = interaction.options.getInteger('delay') ?? 30;
-            const jobId = interaction.options.getString('server');
-            if (jobId) payload.jobId = jobId.trim();
+            const rawServer = (interaction.options.getString('server') || '').trim();
+            const jobId = rawServer && rawServer.toLowerCase() !== 'all' ? rawServer : null;
+            if (jobId) payload.jobId = jobId;
             embed.addFields(
-                { name: 'Scope', value: jobId ? `Server \`${jobId.trim()}\`` : 'All servers', inline: true },
+                { name: 'Scope', value: jobId ? `Server \`${jobId}\`` : 'All servers', inline: true },
                 { name: 'Warning', value: `${payload.delay}s`, inline: true }
             );
         } else {
