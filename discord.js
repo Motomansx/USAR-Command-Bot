@@ -85,6 +85,25 @@ async function publish(payload) {
     if (!res.ok) throw new Error(`Roblox API ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+// Commands that must still apply when no server is online are also saved to a DataStore queue.
+// Servers drain it when they start up (and once a minute) — see DiscordBridgeService.
+const QUEUEABLE = new Set(['ban', 'unban', 'blacklist', 'unblacklist', 'warrant', 'clearwarrant']);
+const QUEUE_STORE = 'DiscordPending_v1';
+
+async function queueCommand(payload) {
+    const body = JSON.stringify(payload);
+    const md5 = crypto.createHash('md5').update(body).digest('base64');
+    const url = `https://apis.roblox.com/datastores/v1/universes/${UNIVERSE_ID}/standard-datastores/datastore/entries/entry`
+        + `?datastoreName=${QUEUE_STORE}&entryKey=${encodeURIComponent(payload.id)}`;
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'x-api-key': API_KEY, 'content-type': 'application/json', 'content-md5': md5 },
+        body,
+    });
+    if (!res.ok) throw new Error(`Queue write ${res.status}: ${(await res.text()).slice(0, 160)}`);
+}
+
 async function handleGameCommand(interaction, { logChannel } = {}) {
     await interaction.deferReply();
     const action = interaction.options.getSubcommand();
@@ -143,9 +162,36 @@ async function handleGameCommand(interaction, { logChannel } = {}) {
         }
 
         if (reason) embed.addFields({ name: 'Reason', value: reason, inline: false });
-        embed.setFooter({ text: 'Sent to live servers — executes within a few seconds' });
+        let queued = false;
+        let queueError = null;
+        if (QUEUEABLE.has(action)) {
+            try {
+                await queueCommand(payload); // saved WITHOUT the q flag
+                queued = true;
+                payload.q = true;            // tells live servers this command is also in the queue
+            } catch (e) {
+                queueError = e.message;
+                console.error('[Game Bridge] queue write failed:', e.message);
+            }
+        }
 
-        await publish(payload);
+        let live = true;
+        let liveError = null;
+        try {
+            await publish(payload);
+        } catch (e) {
+            live = false;
+            liveError = e.message;
+        }
+
+        if (!queued && !live) throw new Error(liveError || queueError || 'Delivery failed.');
+
+        let footer;
+        if (!QUEUEABLE.has(action)) footer = 'Sent to live servers — executes within a few seconds';
+        else if (queued && live) footer = 'Sent live + queued — applies next server start if none is online';
+        else if (queued) footer = 'No live delivery — queued, applies when a server starts';
+        else footer = 'Sent live only — NOT queued (API key needs Data Store write access)';
+        embed.setFooter({ text: footer });
 
         await interaction.editReply({ embeds: [embed] });
         if (logChannel) await logChannel.send({ embeds: [embed] }).catch(() => {});
